@@ -1,0 +1,1649 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <meta name="theme-color" content="#4f46e5" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="Partner Texter" />
+  <link rel="manifest" href="manifest.json" />
+  <link rel="apple-touch-icon" href="icon-192.png" />
+  <title>Partner Texter</title>
+  <style>
+    :root {
+      --primary: #4f46e5;
+      --primary-light: #ede9fe;
+      --danger: #ef4444;
+      --success: #10b981;
+      --warn: #f59e0b;
+      --bg: #f1f5f9;
+      --card: #fff;
+      --border: #e2e8f0;
+      --text: #0f172a;
+      --muted: #64748b;
+      --radius: 10px;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; }
+
+    header { background: var(--primary); color: #fff; padding: 1rem 2rem; display: flex; align-items: center; justify-content: space-between; gap: 1rem; box-shadow: 0 2px 8px rgba(0,0,0,0.18); flex-wrap: wrap; }
+    header h1 { font-size: 1.4rem; font-weight: 700; }
+    header p  { font-size: 0.85rem; opacity: 0.82; margin-top: 0.1rem; }
+
+    .sync-badge { font-size: 0.78rem; padding: 0.2rem 0.65rem; border-radius: 999px; font-weight: 600; white-space: nowrap; }
+    .sync-connecting { background: rgba(255,255,255,0.2); color: #fff; }
+    .sync-live       { background: #10b981; color: #fff; }
+    .sync-error      { background: var(--danger); color: #fff; }
+
+    .dispatcher-bar { background: #3730a3; color: #fff; padding: 0.6rem 2rem; display: flex; align-items: center; gap: 1rem; flex-wrap: wrap; }
+    .dispatcher-label { font-size: 0.82rem; font-weight: 600; opacity: 0.8; white-space: nowrap; }
+    .dispatcher-pills { display: flex; gap: 0.4rem; flex-wrap: wrap; }
+    .dispatcher-pill { padding: 0.3rem 1rem; border-radius: 999px; border: 1.5px solid rgba(255,255,255,0.35); background: transparent; color: #fff; font-size: 0.85rem; font-weight: 600; cursor: pointer; transition: all 0.15s; font-family: inherit; }
+    .dispatcher-pill:hover    { background: rgba(255,255,255,0.15); }
+    .dispatcher-pill.active   { background: #fff; color: #3730a3; border-color: #fff; }
+    .dispatcher-pill.edit-btn { font-weight: 400; font-size: 0.78rem; opacity: 0.7; padding: 0.3rem 0.7rem; }
+    .dispatcher-pill.edit-btn:hover { opacity: 1; }
+    .dispatcher-phone-tag { font-size: 0.75rem; opacity: 0.75; font-family: monospace; }
+
+    .container { max-width: 960px; margin: 0 auto; padding: 1.5rem; }
+
+    .tabs { display: flex; gap: 0.25rem; margin-bottom: 1.5rem; background: var(--card); border: 1px solid var(--border); border-radius: var(--radius); padding: 0.35rem; }
+    .tab-btn { flex: 1; padding: 0.55rem 0.4rem; border: none; background: transparent; border-radius: 7px; cursor: pointer; font-size: 0.84rem; font-weight: 500; color: var(--muted); transition: all 0.15s; }
+    .tab-btn.active { background: var(--primary); color: #fff; }
+    .tab-btn:not(.active):hover { background: var(--bg); color: var(--text); }
+
+    .card { background: var(--card); border: 1px solid var(--border); border-radius: var(--radius); padding: 1.5rem; margin-bottom: 1rem; }
+    .card-title { font-size: 1rem; font-weight: 600; margin-bottom: 1rem; }
+
+    .form-row { display: flex; gap: 0.75rem; align-items: flex-end; margin-bottom: 1rem; flex-wrap: wrap; }
+    .form-group { flex: 1; min-width: 140px; }
+    label { display: block; font-size: 0.8rem; font-weight: 500; color: var(--muted); margin-bottom: 0.3rem; }
+    input, select, textarea { width: 100%; padding: 0.5rem 0.75rem; border: 1px solid var(--border); border-radius: 7px; font-size: 0.9rem; background: var(--bg); color: var(--text); transition: border-color 0.15s; font-family: inherit; }
+    input:focus, select:focus, textarea:focus { outline: none; border-color: var(--primary); box-shadow: 0 0 0 3px rgba(79,70,229,0.1); }
+    textarea { resize: vertical; min-height: 110px; }
+
+    .btn { padding: 0.5rem 1rem; border: none; border-radius: 7px; font-size: 0.875rem; font-weight: 500; cursor: pointer; display: inline-flex; align-items: center; gap: 0.4rem; transition: all 0.15s; white-space: nowrap; font-family: inherit; }
+    .btn-primary { background: var(--primary); color: #fff; }
+    .btn-primary:hover:not(:disabled) { background: #4338ca; }
+    .btn-danger  { background: var(--danger); color: #fff; }
+    .btn-danger:hover:not(:disabled)  { background: #dc2626; }
+    .btn-success { background: var(--success); color: #fff; }
+    .btn-success:hover:not(:disabled) { background: #059669; }
+    .btn-outline { background: transparent; border: 1px solid var(--border); color: var(--text); }
+    .btn-outline:hover:not(:disabled) { background: var(--bg); }
+    .btn-sm { padding: 0.3rem 0.65rem; font-size: 0.8rem; }
+    .btn:disabled { opacity: 0.45; cursor: not-allowed; }
+
+    table { width: 100%; border-collapse: collapse; font-size: 0.88rem; }
+    th { text-align: left; padding: 0.5rem 0.75rem; color: var(--muted); font-size: 0.75rem; font-weight: 600; border-bottom: 2px solid var(--border); text-transform: uppercase; letter-spacing: 0.05em; }
+    td { padding: 0.65rem 0.75rem; border-bottom: 1px solid var(--border); vertical-align: middle; }
+    tr:last-child td { border-bottom: none; }
+    tr:hover td { background: #f8fafc; }
+
+    .pairs-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem; }
+    .pair-card { background: var(--bg); border: 1px solid var(--border); border-radius: 8px; padding: 0.75rem 1rem; display: flex; align-items: center; gap: 0.6rem; }
+    .pair-unpaired { border-color: var(--warn); background: #fffbeb; }
+    .pair-alone    { border-color: #06b6d4; background: #ecfeff; }
+    .pair-name  { font-weight: 500; font-size: 0.9rem; }
+    .pair-phone { font-size: 0.75rem; color: var(--muted); }
+    .pair-route-tag { font-size: 0.7rem; color: var(--primary); background: var(--primary-light); border-radius: 4px; padding: 0.1rem 0.4rem; margin-top: 0.15rem; display: inline-block; }
+    .pair-arrow { color: var(--primary); font-weight: 700; font-size: 1.1rem; flex-shrink: 0; }
+
+    .preview-list { display: flex; flex-direction: column; gap: 0.75rem; }
+    .preview-item { background: var(--bg); border: 1px solid var(--border); border-radius: 8px; padding: 1rem; }
+    .preview-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 0.5rem; }
+    .preview-name  { font-weight: 600; font-size: 0.9rem; }
+    .preview-phone { font-size: 0.78rem; color: var(--muted); font-family: monospace; }
+    .preview-msg   { font-size: 0.88rem; line-height: 1.55; white-space: pre-wrap; }
+    .preview-status { font-size: 0.75rem; padding: 0.2rem 0.55rem; border-radius: 999px; font-weight: 600; flex-shrink: 0; }
+    .status-pending { background: #f1f5f9; color: var(--muted); }
+    .status-sending { background: #dbeafe; color: #1d4ed8; }
+    .status-sent    { background: #dcfce7; color: #166534; }
+    .status-error   { background: #fee2e2; color: #991b1b; }
+
+    .char-count { font-size: 0.78rem; color: var(--muted); text-align: right; margin-top: 0.35rem; }
+    .char-warn  { color: var(--warn); }
+    .char-over  { color: var(--danger); }
+
+    .alert { padding: 0.75rem 1rem; border-radius: 8px; font-size: 0.875rem; margin-bottom: 1rem; line-height: 1.55; }
+    .alert-info    { background: #eff6ff; border: 1px solid #bfdbfe; color: #1e40af; }
+    .alert-warn    { background: #fffbeb; border: 1px solid #fde68a; color: #854d0e; }
+    .alert-success { background: #f0fdf4; border: 1px solid #bbf7d0; color: #166534; }
+
+    .var-list  { display: flex; flex-wrap: wrap; gap: 0.4rem; margin-bottom: 0.75rem; }
+    .var-badge { font-family: monospace; font-size: 0.82rem; background: var(--primary-light); color: var(--primary); padding: 0.2rem 0.55rem; border-radius: 5px; cursor: pointer; border: 1px solid #c4b5fd; }
+    .var-badge:hover { background: #c4b5fd; }
+
+    .progress-bar  { height: 6px; background: var(--border); border-radius: 3px; overflow: hidden; margin-bottom: 1rem; }
+    .progress-fill { height: 100%; background: var(--primary); border-radius: 3px; transition: width 0.3s; }
+
+    .radio-group { display: flex; gap: 1.5rem; flex-wrap: wrap; }
+    .radio-label { display: flex; align-items: center; gap: 0.45rem; cursor: pointer; font-size: 0.9rem; font-weight: 500; }
+
+    .action-bar  { display: flex; gap: 0.5rem; align-items: center; margin-bottom: 1rem; flex-wrap: wrap; }
+    .empty-state { text-align: center; padding: 2.5rem 1rem; color: var(--muted); }
+    .empty-icon  { font-size: 2.5rem; margin-bottom: 0.5rem; }
+
+    .tag        { font-size: 0.75rem; padding: 0.15rem 0.55rem; border-radius: 999px; font-weight: 500; }
+    .tag-green  { background: #dcfce7; color: #166534; }
+    .tag-blue   { background: #dbeafe; color: #1d4ed8; }
+    .tag-gray   { background: #f1f5f9; color: var(--muted); }
+    .tag-purple { background: var(--primary-light); color: var(--primary); }
+
+    code { background: #f1f5f9; padding: 0.1rem 0.35rem; border-radius: 4px; font-size: 0.85em; font-family: monospace; }
+
+    .send-bar { display: flex; gap: 0.75rem; align-items: center; flex-wrap: wrap; }
+
+    .dispatcher-list { display: flex; flex-direction: column; gap: 0.5rem; margin-bottom: 1rem; }
+    .dispatcher-row  { display: flex; align-items: center; gap: 0.5rem; background: var(--bg); border: 1px solid var(--border); border-radius: 8px; padding: 0.5rem 0.75rem; flex-wrap: wrap; }
+    .dispatcher-row input { background: transparent; border: none; font-weight: 600; flex: 1; min-width: 100px; padding: 0; box-shadow: none; font-size: 0.95rem; }
+    .dispatcher-row input.phone-input { font-weight: 400; font-size: 0.88rem; color: var(--muted); font-family: monospace; max-width: 160px; }
+    .dispatcher-row input:focus { outline: none; }
+    .active-dot   { width: 9px; height: 9px; border-radius: 50%; background: var(--success); flex-shrink: 0; }
+    .inactive-dot { width: 9px; height: 9px; border-radius: 50%; background: var(--border); flex-shrink: 0; }
+
+    .route-filter-bar { display: flex; align-items: center; gap: 0.5rem; margin-bottom: 1rem; flex-wrap: wrap; }
+    .route-filter-bar label { font-size: 0.82rem; font-weight: 600; color: var(--muted); margin: 0; white-space: nowrap; }
+    .route-filter-bar select { width: auto; min-width: 160px; }
+
+    #loading-overlay { position: fixed; inset: 0; background: rgba(15,23,42,0.7); display: flex; flex-direction: column; align-items: center; justify-content: center; color: #fff; font-size: 1.1rem; font-weight: 600; gap: 1rem; z-index: 9999; }
+    .spinner { width: 40px; height: 40px; border: 4px solid rgba(255,255,255,0.3); border-top-color: #fff; border-radius: 50%; animation: spin 0.8s linear infinite; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    .hidden { display: none !important; }
+
+    @media (max-width: 620px) {
+      .pairs-grid { grid-template-columns: 1fr; }
+      .tabs { gap: 0.15rem; }
+      .tab-btn { font-size: 0.75rem; padding: 0.45rem 0.2rem; }
+      .dispatcher-bar { padding: 0.6rem 1rem; }
+    }
+  </style>
+</head>
+<body>
+
+<div id="loading-overlay">
+  <div class="spinner"></div>
+  <div>Connecting to live database…</div>
+</div>
+
+<header>
+  <div>
+    <h1>🤝 Partner Texter</h1>
+    <p>Assign partners &amp; send personalized texts</p>
+  </div>
+  <div style="display:flex;gap:0.5rem;flex-wrap:wrap;align-items:center;">
+    <span class="sync-badge sync-connecting" id="sync-badge">⟳ Connecting…</span>
+    <button class="btn btn-outline" style="background:rgba(255,255,255,0.12);color:#fff;border-color:rgba(255,255,255,0.3);" onclick="exportConfig()">📤 Export</button>
+    <label class="btn btn-outline" style="background:rgba(255,255,255,0.12);color:#fff;border-color:rgba(255,255,255,0.3);cursor:pointer;">
+      📥 Import
+      <input type="file" accept=".json" style="display:none;" onchange="importConfig(event)" />
+    </label>
+  </div>
+</header>
+
+<div class="dispatcher-bar">
+  <span class="dispatcher-label">DISPATCHER:</span>
+  <div class="dispatcher-pills" id="dispatcher-pills"></div>
+  <button class="dispatcher-pill edit-btn" onclick="resetPairings()">🔄 Reset Pairings</button>
+  <button class="dispatcher-pill edit-btn" onclick="switchTab('settings', document.querySelectorAll(\'.tab-btn\')[4])">✏️ Edit</button>
+</div>
+
+<div class="container">
+
+  <div class="tabs">
+    <button class="tab-btn active" onclick="switchTab('people', this)">👥 People</button>
+    <button class="tab-btn" onclick="switchTab('pairs', this)">🔗 Pairs</button>
+    <button class="tab-btn" onclick="switchTab('template', this)">✉️ Template</button>
+    <button class="tab-btn" onclick="switchTab('send', this)">🚀 Send</button>
+    <button class="tab-btn" onclick="switchTab('settings', this)">⚙️ Settings</button>
+  </div>
+
+  <!-- ══════════════ PEOPLE ══════════════ -->
+  <div id="tab-people">
+    <div class="card">
+      <div class="card-title">Add a Person</div>
+      <div class="form-row">
+        <div class="form-group">
+          <label>Full Name</label>
+          <input type="text" id="new-name" placeholder="Jane Smith" autocomplete="off" />
+        </div>
+        <div class="form-group">
+          <label>Phone Number</label>
+          <input type="tel" id="new-phone" placeholder="+15551234567" autocomplete="off" />
+        </div>
+        <div class="form-group" style="max-width:160px;">
+          <label>Route</label>
+          <select id="new-route">
+            <option value="">— No Route —</option>
+          </select>
+        </div>
+        <button class="btn btn-primary" onclick="addPerson()" style="margin-bottom:0;">+ Add</button>
+      </div>
+      <div class="action-bar">
+        <label class="btn btn-outline btn-sm" style="cursor:pointer;margin:0;">
+          📤 Import CSV
+          <input type="file" id="csv-input" accept=".csv" style="display:none" onchange="importCSV(event)" />
+        </label>
+        <button class="btn btn-outline btn-sm" onclick="exportCSV()">📥 Export CSV</button>
+        <button class="btn btn-outline btn-sm" onclick="clearAllPeople()" style="color:var(--danger);border-color:var(--danger);">⚠️ Clear All People</button>
+        <span style="margin-left:auto;font-size:0.85rem;color:var(--muted);" id="people-count">0 people</span>
+      </div>
+    </div>
+
+    <div class="card" style="padding:0;overflow:hidden;">
+      <div id="people-empty" class="empty-state">
+        <div class="empty-icon">👤</div>
+        <div>No people yet. Add someone above or import a CSV file.</div>
+      </div>
+      <table id="people-table" class="hidden">
+        <thead>
+          <tr><th>Name</th><th>Phone</th><th>Route</th><th>Partner</th><th></th></tr>
+        </thead>
+        <tbody id="people-tbody"></tbody>
+      </table>
+    </div>
+
+    <div class="alert alert-info">
+      <strong>CSV format:</strong> Columns — <code>Name</code>, <code>Phone</code>, and optionally <code>Route</code> with a header row.
+    </div>
+  </div>
+
+  <!-- ══════════════ PAIRS ══════════════ -->
+  <div id="tab-pairs" class="hidden">
+    <div class="card">
+      <div class="card-title">Partner Assignment</div>
+      <div class="action-bar">
+        <button class="btn btn-primary" onclick="shufflePairs()">🔀 Random Shuffle</button>
+        <button class="btn btn-outline" onclick="shufflePairsFiltered()" id="shuffle-route-btn" style="display:none;">🔀 Shuffle This Route</button>
+        <button class="btn btn-outline" onclick="resetPairings()" style="color:var(--danger);border-color:var(--danger);">🔄 Reset Pairings</button>
+        <span style="margin-left:auto;font-size:0.85rem;color:var(--muted);" id="pairs-count"></span>
+      </div>
+      <div class="route-filter-bar">
+        <label>🗺️ Show Route:</label>
+        <select id="pairs-route-filter" onchange="onPairsRouteFilter()">
+          <option value="">All Routes</option>
+        </select>
+      </div>
+      <div id="pairs-empty" class="empty-state hidden">
+        <div class="empty-icon">🔗</div>
+        <div>Add people on the People tab first.</div>
+      </div>
+      <div id="pairs-container"></div>
+    </div>
+    <div class="alert alert-info">
+      <strong>Tip:</strong> Filter by route to pair people within a specific route. <strong>Random Shuffle</strong> pairs everyone shown in the current filter.
+    </div>
+  </div>
+
+  <!-- ══════════════ TEMPLATE ══════════════ -->
+  <div id="tab-template" class="hidden">
+    <div class="card">
+      <div class="card-title">Message Template</div>
+      <p style="font-size:0.85rem;color:var(--muted);margin-bottom:0.75rem;">Click a variable to insert it at the cursor.</p>
+      <div class="var-list">
+        <span class="var-badge" onclick="insertVar('{myName}')">{myName}</span>
+        <span class="var-badge" onclick="insertVar('{myPhone}')">{myPhone}</span>
+        <span class="var-badge" onclick="insertVar('{myRoute}')">{myRoute}</span>
+        <span class="var-badge" onclick="insertVar('{partnerName}')">{partnerName}</span>
+        <span class="var-badge" onclick="insertVar('{partnerPhone}')">{partnerPhone}</span>
+        <span class="var-badge" onclick="insertVar('{pairTruck}')">{pairTruck}</span>
+        <span class="var-badge" onclick="insertVar('{pairNote}')">{pairNote}</span>
+        <span class="var-badge" style="background:#fef3c7;color:#92400e;border-color:#fcd34d;" onclick="insertVar('{dispatcherName}')">{dispatcherName} ★</span>
+        <span class="var-badge" style="background:#fef3c7;color:#92400e;border-color:#fcd34d;" onclick="insertVar('{dispatcherPhone}')">{dispatcherPhone} ★</span>
+      </div>
+      <textarea id="template-input" oninput="updateTemplatePreview()"></textarea>
+      <div class="char-count" id="char-count">0 characters</div>
+    </div>
+    <div class="card">
+      <div class="card-title">Live Preview</div>
+      <div id="template-preview" style="font-size:0.9rem;line-height:1.6;white-space:pre-wrap;"></div>
+      <div style="font-size:0.78rem;color:var(--muted);margin-top:0.75rem;">Using first paired person (or sample names if no pairs set)</div>
+    </div>
+  </div>
+
+  <!-- ══════════════ SEND ══════════════ -->
+  <div id="tab-send" class="hidden">
+    <div id="send-warnings"></div>
+    <div class="card">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem;flex-wrap:wrap;gap:0.5rem;">
+        <div class="card-title" style="margin:0;">Message Preview</div>
+        <div style="display:flex;gap:0.5rem;align-items:center;flex-wrap:wrap;">
+          <div class="route-filter-bar" style="margin:0;">
+            <label>🗺️ Route:</label>
+            <select id="send-route-filter" onchange="renderSend()">
+              <option value="">All Routes</option>
+            </select>
+          </div>
+          <button class="btn btn-outline btn-sm" onclick="renderSend()">↺ Refresh</button>
+        </div>
+      </div>
+      <div id="send-empty" class="empty-state hidden">
+        <div class="empty-icon">📭</div>
+        <div>No messages to send. Add people and assign pairs first.</div>
+      </div>
+      <div class="preview-list" id="send-preview"></div>
+    </div>
+    <div class="card">
+      <div class="progress-bar hidden" id="send-progress-bar">
+        <div class="progress-fill" id="send-progress-fill" style="width:0%"></div>
+      </div>
+      <div class="send-bar">
+        <button class="btn btn-success" id="send-all-btn" onclick="sendAll()">🚀 Send All Texts</button>
+        <button class="btn btn-outline hidden" id="stop-btn" onclick="stopSending()">⏹ Stop</button>
+        <button class="btn btn-outline" onclick="emailPairings()" style="color:#0369a1;border-color:#7dd3fc;">📧 Email Pairings</button>
+        <span id="send-status" style="font-size:0.85rem;color:var(--muted);"></span>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══════════════ SETTINGS ══════════════ -->
+  <div id="tab-settings" class="hidden">
+
+    <!-- Dispatchers -->
+    <div class="card" style="border-color:#a5b4fc;">
+      <div class="card-title">👤 Dispatchers</div>
+      <p style="font-size:0.85rem;color:var(--muted);margin-bottom:1rem;">
+        Use <code>{dispatcherName}</code> and <code>{dispatcherPhone}</code> in your template. Click a dispatcher to set them active.
+      </p>
+      <div class="dispatcher-list" id="dispatcher-editor-list"></div>
+      <div class="form-row" style="margin:0;">
+        <div class="form-group">
+          <input type="text" id="new-dispatcher-name" placeholder="Name…" autocomplete="off" />
+        </div>
+        <div class="form-group">
+          <input type="tel" id="new-dispatcher-phone" placeholder="Phone (optional)…" autocomplete="off" />
+        </div>
+        <button class="btn btn-primary btn-sm" onclick="addDispatcher()" style="margin-bottom:0;">+ Add</button>
+      </div>
+    </div>
+
+    <!-- Routes -->
+    <div class="card" style="border-color:#6ee7b7;">
+      <div class="card-title">🗺️ Routes</div>
+      <p style="font-size:0.85rem;color:var(--muted);margin-bottom:1rem;">
+        Create routes to organize your team. Assign each person a route on the People tab, then filter by route when pairing or sending.
+      </p>
+      <div class="dispatcher-list" id="route-editor-list"></div>
+      <div class="form-row" style="margin:0;">
+        <div class="form-group">
+          <input type="text" id="new-route-name" placeholder="Route name (e.g. Route 1, Morning, North)…" autocomplete="off" />
+        </div>
+        <button class="btn btn-primary btn-sm" onclick="addRoute()" style="margin-bottom:0;">+ Add</button>
+      </div>
+    </div>
+
+    <!-- Trucks -->
+    <div class="card" style="border-color:#fbbf24;">
+      <div class="card-title">🚛 Trucks</div>
+      <p style="font-size:0.85rem;color:var(--muted);margin-bottom:1rem;">
+        Add trucks here, then assign one per pair on the Pairs tab. Use <code>{pairTruck}</code> in your template.
+      </p>
+      <div class="dispatcher-list" id="truck-editor-list"></div>
+      <div class="form-row" style="margin:0;">
+        <div class="form-group">
+          <input type="text" id="new-truck-name" placeholder="Truck name (e.g. Truck 1, F-150, Unit 7)…" autocomplete="off" />
+        </div>
+        <button class="btn btn-primary btn-sm" onclick="addTruck()" style="margin-bottom:0;">+ Add</button>
+      </div>
+    </div>
+
+    <!-- Integration Mode -->
+    <div class="card">
+      <div class="card-title">Integration Mode</div>
+      <div class="radio-group">
+        <label class="radio-label">
+          <input type="radio" name="mode" value="zapier" onchange="onModeChange()" />
+          Zapier Webhook&nbsp;<span class="tag tag-blue">Recommended</span>
+        </label>
+        <label class="radio-label">
+          <input type="radio" name="mode" value="simpletexting" onchange="onModeChange()" />
+          Simple Texting Direct API
+        </label>
+      </div>
+    </div>
+
+    <!-- Zapier -->
+    <div class="card" id="zapier-settings">
+      <div class="card-title">Zapier Webhook Setup</div>
+      <div class="alert alert-info">
+        <strong>Steps in Zapier:</strong><br>
+        1. New Zap → Trigger: <strong>Webhooks by Zapier → Catch Hook</strong><br>
+        2. Copy the webhook URL and paste below<br>
+        3. Action: <strong>Simple Texting → Send SMS Message</strong><br>
+        4. Map: <code>to</code> → Contact Phone &nbsp;|&nbsp; <code>message</code> → Message Body
+      </div>
+      <div class="form-group">
+        <label>Zapier Webhook URL</label>
+        <input type="url" id="zapier-url" placeholder="https://hooks.zapier.com/hooks/catch/..." oninput="saveSettings()" />
+      </div>
+    </div>
+
+    <!-- Simple Texting -->
+    <div class="card hidden" id="st-settings">
+      <div class="card-title">Simple Texting Direct API</div>
+      <div class="alert alert-warn">
+        <strong>CORS notice:</strong> Direct API calls may be blocked by your browser. Use Zapier mode if this happens.
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label>API Token</label>
+          <input type="password" id="st-api-key" placeholder="Your Simple Texting API token" oninput="saveSettings()" />
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label>From Number</label>
+          <input type="tel" id="st-from" placeholder="+15551234567" oninput="saveSettings()" />
+        </div>
+      </div>
+    </div>
+
+    <!-- Send Options -->
+    <div class="card">
+      <div class="card-title">Send Options</div>
+      <div class="form-group" style="max-width:320px;">
+        <label>Delay Between Messages (ms)</label>
+        <input type="number" id="send-delay" value="1200" min="500" max="30000" step="100" oninput="saveSettings()" />
+        <div style="font-size:0.78rem;color:var(--muted);margin-top:0.3rem;">1200 ms recommended to avoid rate limits</div>
+      </div>
+    </div>
+
+    <!-- Email Recipients -->
+    <div class="card" style="border-color:#7dd3fc;">
+      <div class="card-title">📧 Email Pairings Recipients</div>
+      <div class="dispatcher-list" id="email-recipient-list"></div>
+      <div class="form-row" style="margin:0;">
+        <div class="form-group">
+          <input type="email" id="new-email-recipient" placeholder="Add email address…" autocomplete="off" />
+        </div>
+        <button class="btn btn-primary btn-sm" onclick="addEmailRecipient()" style="margin-bottom:0;">+ Add</button>
+      </div>
+    </div>
+
+    <!-- Export -->
+    <div class="card" style="border-color:#a5b4fc;">
+      <div class="card-title">📤 Export Backup</div>
+      <div style="display:flex;gap:0.5rem;flex-wrap:wrap;">
+        <button class="btn btn-primary" onclick="exportConfig()">📤 Export Backup (.json)</button>
+        <label class="btn btn-outline" style="cursor:pointer;">
+          📥 Import Backup (.json)
+          <input type="file" accept=".json" style="display:none;" onchange="importConfig(event)" />
+        </label>
+      </div>
+    </div>
+
+    <!-- Danger Zone -->
+    <div class="card" style="border-color:var(--danger);">
+      <div class="card-title" style="color:var(--danger);">Danger Zone</div>
+      <button class="btn btn-danger btn-sm" onclick="clearAllData()">🗑 Clear All Data</button>
+      <span style="font-size:0.8rem;color:var(--muted);margin-left:0.75rem;">Removes everything for all users.</span>
+    </div>
+
+  </div>
+</div>
+
+<!-- Firebase SDKs -->
+<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-database-compat.js"></script>
+
+<script>
+// ═══════════════════════════════════════════════════════════════
+// FIREBASE
+// ═══════════════════════════════════════════════════════════════
+const firebaseConfig = {
+  apiKey:            "AIzaSyD2uTqAYKu_uFSzZpQhGnqmm7UbY93VI1o",
+  authDomain:        "daily-assignments.firebaseapp.com",
+  databaseURL:       "https://daily-assignments-default-rtdb.firebaseio.com",
+  projectId:         "daily-assignments",
+  storageBucket:     "daily-assignments.firebasestorage.app",
+  messagingSenderId: "479085902426",
+  appId:             "1:479085902426:web:fbc8fe23a708547b29b663"
+};
+firebase.initializeApp(firebaseConfig);
+const db      = firebase.database();
+const DB_PATH = 'partnerTexter';
+
+// ═══════════════════════════════════════════════════════════════
+// BAKED-IN DEFAULTS
+// ═══════════════════════════════════════════════════════════════
+const BAKED_IN = {
+  state: {
+    people: [
+      { id:  1, name: "Joe Nelson",        phone: "+12188494693", route: "" },
+      { id:  2, name: "Jordan Hagel",       phone: "+12182984869", route: "" },
+      { id:  3, name: "Shawn Lafountain",   phone: "+12182980077", route: "" },
+      { id:  4, name: "Derek Mellgren",     phone: "+12185351518", route: "" },
+      { id:  5, name: "Jesse Nash",         phone: "+12184571600", route: "" },
+      { id:  6, name: "Casey Melgard",      phone: "+12182050258", route: "" },
+      { id:  7, name: "Kelly Melgard",      phone: "+12183108750", route: "" },
+      { id:  8, name: "Adam Hammes",        phone: "+12186392962", route: "" },
+      { id:  9, name: "Allen Alberts",      phone: "+12184570952", route: "" },
+      { id: 10, name: "Austin Brinkman",    phone: "+12188497279", route: "" },
+      { id: 11, name: "Blake Rasmussen",    phone: "+13209054119", route: "" },
+      { id: 12, name: "Brock Melgard",      phone: "+12182981557", route: "" },
+      { id: 13, name: "Jerome Hofmann",     phone: "+12183711320", route: "" },
+      { id: 14, name: "Curt Palubicki",     phone: "+12182981144", route: "" },
+      { id: 15, name: "Derick Beaman",      phone: "+12185170685", route: "" },
+      { id: 16, name: "Isaiha Shaw",        phone: "+12184574556", route: "" },
+      { id: 17, name: "Jake Borgenheimer",  phone: "+12185708692", route: "" },
+      { id: 18, name: "James Ritter",       phone: "+12184570886", route: "" },
+      { id: 19, name: "James Ritter Jr",    phone: "+12184570846", route: "" },
+      { id: 20, name: "Jeff Nelson",        phone: "+12188497546", route: "" },
+      { id: 21, name: "Joe Kantrud",        phone: "+12182984417", route: "" },
+      { id: 22, name: "Matt Hendrickx",     phone: "+12183710053", route: "" },
+      { id: 23, name: "Nick Shumansky",     phone: "+12182984330", route: "" },
+      { id: 24, name: "Robert Moss",        phone: "+12188499283", route: "" },
+      { id: 25, name: "Ryan Cummigs",       phone: "+12183710721", route: "" },
+      { id: 26, name: "Tony Seals",         phone: "+12182826630", route: "" },
+      { id: 27, name: "Travis Murphy",      phone: "+12185390466", route: "" },
+      { id: 28, name: "Troy Sperry",        phone: "+12188501802", route: "" },
+      { id: 29, name: "Wade Lubitz",        phone: "+17013182177", route: "" },
+      { id: 30, name: "Wayne Schwartz",     phone: "+12185831057", route: "" },
+      { id: 31, name: "Weston Monson",      phone: "+12182981504", route: "" },
+    ],
+    pairs: {},
+    pairData: {},
+    template: "Hi {myName}! Today's assignment: {pairNote}. Your partner is {partnerName} — {partnerPhone}. Questions? Contact {dispatcherName} at {dispatcherPhone}.",
+    dispatchers: [
+      { name: 'Kelly', phone: '+12183108750' },
+      { name: 'Casey', phone: '+12182050258' },
+    ],
+    activeDispatcher: 'Kelly',
+    routes: [],
+    trucks: [],
+    emailRecipients: [
+      'kelly@stevessanitation.com',
+      'derick@stevessanitation.com',
+      'curt@stevessanitation.com',
+      'casey@stevessanitation.com',
+    ],
+    settings: {
+      mode:      'zapier',
+      zapierUrl: 'https://hooks.zapier.com/hooks/catch/21878107/u05z58w/',
+      stApiKey:  '',
+      stFrom:    '',
+      sendDelay: 1200,
+    }
+  },
+  nextId: 32
+};
+
+// ═══════════════════════════════════════════════════════════════
+// CONSTANTS
+// ═══════════════════════════════════════════════════════════════
+const ALONE = '__alone__';
+
+// ═══════════════════════════════════════════════════════════════
+// STATE
+// ═══════════════════════════════════════════════════════════════
+let state        = JSON.parse(JSON.stringify(BAKED_IN.state));
+let nextId       = BAKED_IN.nextId;
+let isSending    = false;
+let stopFlag     = false;
+let _initialized = false;
+
+// ═══════════════════════════════════════════════════════════════
+// PERSISTENCE
+// ═══════════════════════════════════════════════════════════════
+function saveState() {
+  db.ref(DB_PATH).set({ state, nextId })
+    .catch(err => console.error('Firebase save error:', err));
+}
+
+function setSyncBadge(status) {
+  const b = document.getElementById('sync-badge');
+  if (!b) return;
+  if (status === 'live')  { b.textContent = '🟢 Live';        b.className = 'sync-badge sync-live'; }
+  else if (status === 'error') { b.textContent = '🔴 Offline'; b.className = 'sync-badge sync-error'; }
+  else                         { b.textContent = '⟳ Connecting…'; b.className = 'sync-badge sync-connecting'; }
+}
+
+// ═══════════════════════════════════════════════════════════════
+// MIGRATION — handle old data formats
+// ═══════════════════════════════════════════════════════════════
+function migrateState(s) {
+  // dispatchers: string[] → {name,phone}[]
+  if (Array.isArray(s.dispatchers) && s.dispatchers.length && typeof s.dispatchers[0] === 'string') {
+    s.dispatchers = s.dispatchers.map(n => ({ name: n, phone: '' }));
+  }
+  if (!s.dispatchers || !s.dispatchers.length) s.dispatchers = BAKED_IN.state.dispatchers;
+  if (!s.activeDispatcher) s.activeDispatcher = s.dispatchers[0]?.name || 'Kelly';
+  if (!s.emailRecipients)  s.emailRecipients  = [...BAKED_IN.state.emailRecipients];
+  if (!s.settings)         s.settings         = { ...BAKED_IN.state.settings };
+  if (!s.pairs)            s.pairs            = {};
+  if (!s.pairData)         s.pairData         = {};
+  if (!s.routes)           s.routes           = [];
+  if (!s.trucks)           s.trucks           = [];
+  // add route field to any people missing it
+  if (Array.isArray(s.people)) s.people.forEach(p => { if (!('route' in p)) p.route = ''; });
+  // v3: ensure {pairNote} is in the template
+  if (!s._v || s._v < 3) {
+    if (s.template && !s.template.includes('{pairNote}')) {
+      s.template = s.template.replace(/\s*$/, '') + ' Assignment: {pairNote}';
+    }
+    s._v = 3;
+  }
+  return s;
+}
+
+// ═══════════════════════════════════════════════════════════════
+// EXPORT / IMPORT
+// ═══════════════════════════════════════════════════════════════
+function exportConfig() {
+  const payload = JSON.stringify({ state, nextId, exportedAt: new Date().toISOString() }, null, 2);
+  dlFile('partner-texter-backup.json', payload, 'application/json');
+}
+
+function importConfig(event) {
+  const file = event.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = e => {
+    try {
+      const d = JSON.parse(e.target.result);
+      if (!d.state) throw new Error('Invalid');
+      if (!confirm(`Import backup from "${file.name}"?\nThis will replace ALL data for everyone.`)) return;
+      state  = migrateState(d.state);
+      nextId = d.nextId || 1;
+      saveState();
+      renderAll();
+      alert('Backup imported!');
+    } catch { alert('Could not read backup file.'); }
+  };
+  reader.readAsText(file);
+  event.target.value = '';
+}
+
+// ═══════════════════════════════════════════════════════════════
+// TABS
+// ═══════════════════════════════════════════════════════════════
+function switchTab(tab, btn) {
+  document.querySelectorAll('[id^="tab-"]').forEach(el => el.classList.add('hidden'));
+  document.getElementById('tab-' + tab).classList.remove('hidden');
+  document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+  if (btn) btn.classList.add('active');
+  if (tab === 'pairs')    { populateRouteFilter('pairs-route-filter'); renderPairs(); }
+  if (tab === 'template') { document.getElementById('template-input').value = state.template; updateTemplatePreview(); }
+  if (tab === 'send')     { populateRouteFilter('send-route-filter'); renderSend(); }
+  if (tab === 'settings') { loadSettingsUI(); renderDispatcherEditor(); renderEmailRecipientList(); renderRouteEditor(); renderTruckEditor(); }
+}
+
+function renderAll() {
+  renderPeopleTable();
+  renderDispatcherBar();
+  renderDispatcherEditor();
+  renderRouteEditor();
+  renderTruckEditor();
+  populateRouteDropdowns();
+  const ta = document.getElementById('template-input');
+  if (document.activeElement !== ta) { ta.value = state.template; updateTemplatePreview(); }
+  loadSettingsUI();
+}
+
+// ═══════════════════════════════════════════════════════════════
+// ROUTES
+// ═══════════════════════════════════════════════════════════════
+function populateRouteDropdowns() {
+  populateRouteFilter('pairs-route-filter');
+  populateRouteFilter('send-route-filter');
+  populateRouteSelect('new-route');
+  // Update all inline people-row route selects
+  document.querySelectorAll('[data-route-select]').forEach(sel => {
+    const id  = parseInt(sel.dataset.routeSelect);
+    const cur = (state.people.find(p => p.id === id) || {}).route || '';
+    rebuildRouteOptions(sel, cur, true);
+  });
+}
+
+function populateRouteFilter(elId) {
+  const sel = document.getElementById(elId);
+  if (!sel) return;
+  const cur = sel.value;
+  sel.innerHTML = '<option value="">All Routes</option>'
+    + state.routes.map(r => `<option value="${esc(r)}" ${cur === r ? 'selected' : ''}>${esc(r)}</option>`).join('');
+}
+
+function populateRouteSelect(elId, current = '') {
+  const sel = document.getElementById(elId);
+  if (!sel) return;
+  sel.innerHTML = '<option value="">— No Route —</option>'
+    + state.routes.map(r => `<option value="${esc(r)}" ${current === r ? 'selected' : ''}>${esc(r)}</option>`).join('');
+}
+
+function rebuildRouteOptions(sel, current, includeBlank = true) {
+  sel.innerHTML = (includeBlank ? '<option value="">— No Route —</option>' : '')
+    + state.routes.map(r => `<option value="${esc(r)}" ${current === r ? 'selected' : ''}>${esc(r)}</option>`).join('');
+}
+
+function renderRouteEditor() {
+  const list = document.getElementById('route-editor-list');
+  if (!list) return;
+  if (!state.routes.length) {
+    list.innerHTML = '<div style="font-size:0.85rem;color:var(--muted);margin-bottom:0.5rem;">No routes yet — add one below.</div>';
+    return;
+  }
+  list.innerHTML = state.routes.map((r, i) => `
+    <div class="dispatcher-row">
+      <span style="font-size:1rem;">🗺️</span>
+      <input type="text" value="${esc(r)}" onchange="renameRoute(${i}, this.value)" />
+      <span style="font-size:0.78rem;color:var(--muted);">${state.people.filter(p => p.route === r).length} people</span>
+      <button class="btn btn-danger btn-sm" onclick="removeRoute(${i})">✕</button>
+    </div>
+  `).join('');
+}
+
+function addRoute() {
+  const input = document.getElementById('new-route-name');
+  const name  = input.value.trim();
+  if (!name) { input.focus(); return; }
+  if (state.routes.includes(name)) { alert('That route already exists.'); return; }
+  state.routes.push(name);
+  input.value = '';
+  saveState();
+  renderRouteEditor();
+  populateRouteDropdowns();
+}
+
+function renameRoute(index, newName) {
+  newName = newName.trim();
+  if (!newName) { renderRouteEditor(); return; }
+  const old = state.routes[index];
+  state.routes[index] = newName;
+  // update people assigned to old route name
+  state.people.forEach(p => { if (p.route === old) p.route = newName; });
+  saveState();
+  renderRouteEditor();
+  populateRouteDropdowns();
+  renderPeopleTable();
+}
+
+function removeRoute(index) {
+  const name = state.routes[index];
+  const count = state.people.filter(p => p.route === name).length;
+  if (!confirm(`Remove route "${name}"?${count ? `\n\n${count} people will become unassigned.` : ''}`)) return;
+  state.routes.splice(index, 1);
+  state.people.forEach(p => { if (p.route === name) p.route = ''; });
+  saveState();
+  renderRouteEditor();
+  populateRouteDropdowns();
+  renderPeopleTable();
+}
+
+function setPersonRoute(id, route) {
+  const p = state.people.find(x => x.id === id);
+  if (p) p.route = route;
+  saveState();
+  renderPeopleTable();
+}
+
+function onPairsRouteFilter() {
+  const btn = document.getElementById('shuffle-route-btn');
+  const val = document.getElementById('pairs-route-filter')?.value || '';
+  if (btn) btn.style.display = val ? 'inline-flex' : 'none';
+  renderPairs();
+}
+
+// ═══════════════════════════════════════════════════════════════
+// TRUCKS
+// ═══════════════════════════════════════════════════════════════
+function renderTruckEditor() {
+  const list = document.getElementById('truck-editor-list');
+  if (!list) return;
+  if (!state.trucks.length) {
+    list.innerHTML = '<div style="font-size:0.85rem;color:var(--muted);margin-bottom:0.5rem;">No trucks yet — add one below.</div>';
+    return;
+  }
+  list.innerHTML = state.trucks.map((t, i) => `
+    <div class="dispatcher-row">
+      <span style="font-size:1rem;">🚛</span>
+      <input type="text" value="${esc(t)}" onchange="renameTruck(${i}, this.value)" />
+      <button class="btn btn-danger btn-sm" onclick="removeTruck(${i})">✕</button>
+    </div>
+  `).join('');
+}
+
+function addTruck() {
+  const input = document.getElementById('new-truck-name');
+  const name  = input.value.trim();
+  if (!name) { input.focus(); return; }
+  if (state.trucks.includes(name)) { alert('That truck already exists.'); return; }
+  state.trucks.push(name);
+  input.value = '';
+  saveState();
+  renderTruckEditor();
+}
+
+function renameTruck(index, newName) {
+  newName = newName.trim();
+  if (!newName) { renderTruckEditor(); return; }
+  state.trucks[index] = newName;
+  saveState();
+  renderTruckEditor();
+}
+
+function removeTruck(index) {
+  const name = state.trucks[index];
+  if (!confirm(`Remove truck "${name}"?`)) return;
+  state.trucks.splice(index, 1);
+  saveState();
+  renderTruckEditor();
+}
+
+// ═══════════════════════════════════════════════════════════════
+// DISPATCHER
+// ═══════════════════════════════════════════════════════════════
+function getActiveDispatcher() {
+  return state.dispatchers.find(d => d.name === state.activeDispatcher) || null;
+}
+
+function setActiveDispatcher(name) {
+  state.activeDispatcher = name;
+  saveState();
+  renderDispatcherBar();
+  renderDispatcherEditor();
+  updateTemplatePreview();
+}
+
+function renderDispatcherBar() {
+  const container = document.getElementById('dispatcher-pills');
+  container.innerHTML = state.dispatchers.map(d => `
+    <button class="dispatcher-pill ${d.name === state.activeDispatcher ? 'active' : ''}"
+            onclick="setActiveDispatcher('${esc(d.name)}')">
+      ${esc(d.name)}${d.phone ? `<span class="dispatcher-phone-tag">${esc(d.phone)}</span>` : ''}
+    </button>
+  `).join('');
+}
+
+function renderDispatcherEditor() {
+  const list = document.getElementById('dispatcher-editor-list');
+  if (!list) return;
+  list.innerHTML = state.dispatchers.map((d, i) => `
+    <div class="dispatcher-row">
+      <span class="${d.name === state.activeDispatcher ? 'active-dot' : 'inactive-dot'}"></span>
+      <input type="text" value="${esc(d.name)}" onchange="updateDispatcher(${i}, 'name', this.value)" placeholder="Name" />
+      <input type="tel" class="phone-input" value="${esc(d.phone || '')}" onchange="updateDispatcher(${i}, 'phone', this.value)" placeholder="Phone…" />
+      <button class="btn btn-outline btn-sm" onclick="setActiveDispatcher('${esc(d.name)}')"
+              style="${d.name === state.activeDispatcher ? 'color:var(--success);border-color:var(--success);' : ''}">
+        ${d.name === state.activeDispatcher ? '✓ Active' : 'Set Active'}
+      </button>
+      <button class="btn btn-danger btn-sm" onclick="removeDispatcher(${i})" ${state.dispatchers.length <= 1 ? 'disabled' : ''}>✕</button>
+    </div>
+  `).join('');
+}
+
+function addDispatcher() {
+  const nameInput  = document.getElementById('new-dispatcher-name');
+  const phoneInput = document.getElementById('new-dispatcher-phone');
+  const name  = nameInput.value.trim();
+  const phone = phoneInput.value.trim();
+  if (!name) { nameInput.focus(); return; }
+  if (state.dispatchers.find(d => d.name === name)) { alert('That dispatcher already exists.'); return; }
+  state.dispatchers.push({ name, phone: phone ? formatPhone(phone) : '' });
+  nameInput.value  = '';
+  phoneInput.value = '';
+  saveState();
+  renderDispatcherBar();
+  renderDispatcherEditor();
+}
+
+function updateDispatcher(index, field, value) {
+  value = value.trim();
+  if (!value && field === 'name') { renderDispatcherEditor(); return; }
+  const old = state.dispatchers[index].name;
+  if (field === 'phone') value = value ? formatPhone(value) : '';
+  state.dispatchers[index][field] = value;
+  if (field === 'name' && state.activeDispatcher === old) state.activeDispatcher = value;
+  saveState();
+  renderDispatcherBar();
+  renderDispatcherEditor();
+  if (field === 'name') updateTemplatePreview();
+}
+
+function removeDispatcher(index) {
+  if (state.dispatchers.length <= 1) return;
+  const name = state.dispatchers[index].name;
+  if (!confirm(`Remove dispatcher "${name}"?`)) return;
+  state.dispatchers.splice(index, 1);
+  if (state.activeDispatcher === name) state.activeDispatcher = state.dispatchers[0]?.name || '';
+  saveState();
+  renderDispatcherBar();
+  renderDispatcherEditor();
+}
+
+// ═══════════════════════════════════════════════════════════════
+// EMAIL RECIPIENTS
+// ═══════════════════════════════════════════════════════════════
+function renderEmailRecipientList() {
+  const list = document.getElementById('email-recipient-list');
+  if (!list) return;
+  const recips = state.emailRecipients || [];
+  if (!recips.length) { list.innerHTML = '<div style="font-size:0.85rem;color:var(--muted);margin-bottom:0.5rem;">No recipients yet.</div>'; return; }
+  list.innerHTML = recips.map((email, i) => `
+    <div class="dispatcher-row">
+      <span>✉️</span>
+      <input type="email" value="${esc(email)}" onchange="renameEmailRecipient(${i}, this.value)" style="font-weight:400;" />
+      <button class="btn btn-danger btn-sm" onclick="removeEmailRecipient(${i})">✕</button>
+    </div>
+  `).join('');
+}
+
+function addEmailRecipient() {
+  const input = document.getElementById('new-email-recipient');
+  const email = input.value.trim().toLowerCase();
+  if (!email) { input.focus(); return; }
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { alert('Please enter a valid email address.'); return; }
+  if ((state.emailRecipients || []).includes(email)) { alert('Already in the list.'); return; }
+  if (!state.emailRecipients) state.emailRecipients = [];
+  state.emailRecipients.push(email);
+  input.value = '';
+  saveState();
+  renderEmailRecipientList();
+}
+
+function renameEmailRecipient(index, newEmail) {
+  newEmail = newEmail.trim().toLowerCase();
+  if (!newEmail || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(newEmail)) { renderEmailRecipientList(); return; }
+  state.emailRecipients[index] = newEmail;
+  saveState();
+  renderEmailRecipientList();
+}
+
+function removeEmailRecipient(index) {
+  state.emailRecipients.splice(index, 1);
+  saveState();
+  renderEmailRecipientList();
+}
+
+function emailPairings() {
+  const recips = state.emailRecipients || [];
+  if (!recips.length) { alert('No email recipients configured. Add them in Settings.'); return; }
+
+  const seen = new Set(), pairs = [], unpaired = [], aloneList = [];
+  state.people.forEach(person => {
+    const partnerId = state.pairs[person.id];
+    if (partnerId === ALONE) { aloneList.push(person); return; }
+    if (!partnerId) { unpaired.push(person); return; }
+    if (seen.has(person.id)) return;
+    seen.add(person.id); seen.add(partnerId);
+    const partner = state.people.find(p => p.id === partnerId);
+    if (partner) pairs.push([person, partner]);
+  });
+
+  if (!pairs.length && !unpaired.length && !aloneList.length) { alert('No people or pairs to email.'); return; }
+
+  const today      = new Date().toLocaleDateString('en-US', { weekday:'long', year:'numeric', month:'long', day:'numeric' });
+  const dispatcher = state.activeDispatcher || '—';
+  const dispPhone  = getActiveDispatcher()?.phone || '';
+
+  let body = `PARTNER PAIRINGS\r\n${'='.repeat(40)}\r\n`;
+  body += `Date:        ${today}\r\n`;
+  body += `Dispatcher:  ${dispatcher}${dispPhone ? ` (${dispPhone})` : ''}\r\n`;
+  body += `${'='.repeat(40)}\r\n\r\n`;
+
+  if (pairs.length) {
+    body += `PAIRS (${pairs.length}):\r\n`;
+    pairs.forEach(([a, b], i) => {
+      const pd = state.pairData?.[getPairKey(a.id, b.id)] || {};
+      body += `\r\n  ${i+1}. ${a.name}${a.route ? ` [${a.route}]` : ''}  ↔  ${b.name}${b.route ? ` [${b.route}]` : ''}`;
+      if (pd.truck) body += `  🚛 ${pd.truck}`;
+      if (pd.note)  body += `  — ${pd.note}`;
+      body += `\r\n`;
+      body += `     ${a.name}: ${a.phone}\r\n`;
+      body += `     ${b.name}: ${b.phone}\r\n`;
+    });
+  }
+  if (aloneList.length) {
+    body += `\r\nALONE (${aloneList.length}):\r\n`;
+    aloneList.forEach(p => {
+      const pd = state.pairData?.[`alone_${p.id}`] || {};
+      body += `  • ${p.name}${p.route ? ` [${p.route}]` : ''} (${p.phone})`;
+      if (pd.truck) body += ` — 🚛 ${pd.truck}`;
+      if (pd.day)   body += ` — ${pd.day}`;
+      if (pd.note)  body += ` — ${pd.note}`;
+      body += `\r\n`;
+    });
+  }
+  if (unpaired.length) {
+    body += `\r\nUNPAIRED (${unpaired.length}):\r\n`;
+    unpaired.forEach(p => { body += `  • ${p.name}${p.route ? ` [${p.route}]` : ''} (${p.phone})\r\n`; });
+  }
+  body += `\r\n${'='.repeat(40)}\r\nSent from Partner Texter`;
+
+  const subject  = `Partner Pairings — ${today} — Dispatcher: ${dispatcher}`;
+  const gmailUrl = `https://mail.google.com/mail/?view=cm&fs=1`
+                 + `&to=${encodeURIComponent(recips.join(','))}`
+                 + `&su=${encodeURIComponent(subject)}`
+                 + `&body=${encodeURIComponent(body)}`;
+  window.open(gmailUrl, '_blank');
+}
+
+// ═══════════════════════════════════════════════════════════════
+// PEOPLE
+// ═══════════════════════════════════════════════════════════════
+function addPerson() {
+  const nameEl  = document.getElementById('new-name');
+  const phoneEl = document.getElementById('new-phone');
+  const routeEl = document.getElementById('new-route');
+  const name    = nameEl.value.trim();
+  const phone   = phoneEl.value.trim();
+  if (!name)  { nameEl.focus();  alert('Please enter a name.');         return; }
+  if (!phone) { phoneEl.focus(); alert('Please enter a phone number.'); return; }
+  state.people.push({ id: nextId++, name, phone: formatPhone(phone), route: routeEl.value });
+  nameEl.value = ''; phoneEl.value = ''; routeEl.value = '';
+  nameEl.focus();
+  saveState();
+  renderPeopleTable();
+}
+
+function removePerson(id) {
+  if (!confirm('Remove this person? Their pair will also be cleared.')) return;
+  state.people = state.people.filter(p => p.id !== id);
+  const partner = state.pairs[id];
+  if (partner && partner !== ALONE) delete state.pairs[partner]; // clear real partner's back-ref
+  delete state.pairs[id];
+  saveState();
+  renderPeopleTable();
+}
+
+function clearAllPeople() {
+  if (!state.people.length) return;
+  if (!confirm('⚠️ Remove ALL people and ALL pair assignments?\n\nThis cannot be undone.')) return;
+  state.people = []; state.pairs = {}; nextId = 1;
+  saveState(); renderPeopleTable();
+}
+
+function formatPhone(raw) {
+  let s = raw.replace(/[^\d+]/g, '');
+  if (!s.startsWith('+')) {
+    if (s.startsWith('1') && s.length === 11) s = '+' + s;
+    else if (s.length === 10) s = '+1' + s;
+    else s = '+' + s;
+  }
+  return s;
+}
+
+function renderPeopleTable() {
+  const people = state.people;
+  const tbody  = document.getElementById('people-tbody');
+  const empty  = document.getElementById('people-empty');
+  const table  = document.getElementById('people-table');
+  const count  = document.getElementById('people-count');
+
+  count.textContent = people.length + (people.length === 1 ? ' person' : ' people');
+
+  if (!people.length) { empty.classList.remove('hidden'); table.classList.add('hidden'); return; }
+  empty.classList.add('hidden'); table.classList.remove('hidden');
+
+  tbody.innerHTML = '';
+  people.forEach(p => {
+    const partnerId = state.pairs[p.id];
+    const partner   = partnerId ? state.people.find(x => x.id === partnerId) : null;
+    const tr = document.createElement('tr');
+
+    // Build route select options
+    const routeOpts = '<option value="">— None —</option>'
+      + state.routes.map(r => `<option value="${esc(r)}" ${p.route === r ? 'selected' : ''}>${esc(r)}</option>`).join('');
+
+    tr.innerHTML = `
+      <td><strong>${esc(p.name)}</strong></td>
+      <td style="font-family:monospace;font-size:0.83rem;">${esc(p.phone)}</td>
+      <td>
+        <select style="width:auto;min-width:110px;font-size:0.8rem;padding:0.25rem 0.5rem;"
+                data-route-select="${p.id}"
+                onchange="setPersonRoute(${p.id}, this.value)">
+          ${routeOpts}
+        </select>
+      </td>
+      <td>${partnerId === ALONE
+        ? `<span class="tag" style="background:#cffafe;color:#0e7490;">🧍 Alone</span>`
+        : partner
+          ? `<span class="tag tag-green">↔ ${esc(partner.name)}</span>`
+          : `<span class="tag tag-gray">Unassigned</span>`}
+      </td>
+      <td><button class="btn btn-danger btn-sm" onclick="removePerson(${p.id})">✕</button></td>
+    `;
+    tbody.appendChild(tr);
+  });
+}
+
+// ═══════════════════════════════════════════════════════════════
+// CSV
+// ═══════════════════════════════════════════════════════════════
+function importCSV(event) {
+  const file = event.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = e => {
+    const lines = e.target.result.split(/\r?\n/).filter(l => l.trim());
+    const headers = lines[0].toLowerCase();
+    const start   = headers.includes('name') ? 1 : 0;
+    const hasRoute = headers.includes('route');
+    let added = 0;
+    for (let i = start; i < lines.length; i++) {
+      const cols  = parseCSVLine(lines[i]);
+      const name  = (cols[0] || '').trim().replace(/^"|"$/g, '');
+      const phone = (cols[1] || '').trim().replace(/^"|"$/g, '');
+      const route = hasRoute ? (cols[2] || '').trim().replace(/^"|"$/g, '') : '';
+      if (name && phone) { state.people.push({ id: nextId++, name, phone: formatPhone(phone), route }); added++; }
+    }
+    saveState(); renderPeopleTable();
+    alert(`Imported ${added} ${added === 1 ? 'person' : 'people'}.`);
+  };
+  reader.readAsText(file);
+  event.target.value = '';
+}
+
+function parseCSVLine(line) {
+  const result = []; let cur = ''; let inQ = false;
+  for (const ch of line) {
+    if (ch === '"') inQ = !inQ;
+    else if (ch === ',' && !inQ) { result.push(cur); cur = ''; }
+    else cur += ch;
+  }
+  result.push(cur);
+  return result;
+}
+
+function exportCSV() {
+  const rows = [['Name','Phone','Route'], ...state.people.map(p => [p.name, p.phone, p.route || ''])];
+  const csv  = rows.map(r => r.map(c => `"${String(c).replace(/"/g,'""')}"`).join(',')).join('\n');
+  dlFile('people.csv', csv, 'text/csv');
+}
+
+function dlFile(name, content, type) {
+  const a = document.createElement('a');
+  a.href  = URL.createObjectURL(new Blob([content], { type }));
+  a.download = name; a.click();
+}
+
+// ═══════════════════════════════════════════════════════════════
+// PAIRS
+// ═══════════════════════════════════════════════════════════════
+function getFilteredPeople(filterId) {
+  const route = document.getElementById(filterId)?.value || '';
+  return route ? state.people.filter(p => p.route === route) : state.people;
+}
+
+function shufflePairs() {
+  if (state.people.length < 2) { alert('Add at least 2 people first.'); return; }
+  const ids = [...state.people.map(p => p.id)];
+  for (let i = ids.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [ids[i], ids[j]] = [ids[j], ids[i]];
+  }
+  state.pairs = {};
+  for (let i = 0; i + 1 < ids.length; i += 2) {
+    state.pairs[ids[i]] = ids[i+1];
+    state.pairs[ids[i+1]] = ids[i];
+  }
+  saveState(); renderPeopleTable(); renderPairs();
+}
+
+function shufflePairsFiltered() {
+  const people = getFilteredPeople('pairs-route-filter');
+  if (people.length < 2) { alert('Need at least 2 people in this route to shuffle.'); return; }
+  const ids = [...people.map(p => p.id)];
+  // Remove existing pairs/alone for these people only
+  ids.forEach(id => {
+    const old = state.pairs[id];
+    if (old === ALONE) { delete state.pairs[id]; }
+    else if (old && ids.includes(old)) { delete state.pairs[old]; delete state.pairs[id]; }
+  });
+  for (let i = ids.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [ids[i], ids[j]] = [ids[j], ids[i]];
+  }
+  for (let i = 0; i + 1 < ids.length; i += 2) {
+    state.pairs[ids[i]] = ids[i+1];
+    state.pairs[ids[i+1]] = ids[i];
+  }
+  saveState(); renderPeopleTable(); renderPairs();
+}
+
+// Unique key for a pair regardless of order
+function getPairKey(id1, id2) {
+  if (id2 === ALONE) return `alone_${id1}`;
+  if (id1 === ALONE) return `alone_${id2}`;
+  return [id1, id2].sort((a, b) => a - b).join('_');
+}
+
+function updatePairData(id1, id2, field, value) {
+  const key = getPairKey(id1, id2);
+  if (!state.pairData) state.pairData = {};
+  if (!state.pairData[key]) state.pairData[key] = { day: '', note: '' };
+  state.pairData[key][field] = value;
+  saveState();
+}
+
+function clearPairs() {
+  state.pairs    = {};
+  state.pairData = {};
+  saveState(); renderPeopleTable(); renderPairs();
+}
+
+function resetPairings() {
+  if (!Object.keys(state.pairs).length) { alert('No pairings to reset.'); return; }
+  if (!confirm('Reset all pairings? This will unassign every partner.')) return;
+  clearPairs();
+}
+
+function setPair(personId, rawValue) {
+  const oldPartner = state.pairs[personId];
+  // Clean up old real partner's back-reference (alone has no reciprocal)
+  if (oldPartner && oldPartner !== ALONE) delete state.pairs[oldPartner];
+  delete state.pairs[personId];
+  if (!rawValue) { saveState(); renderPairs(); renderPeopleTable(); return; }
+  // Alone — just mark this person solo, no reciprocal needed
+  if (rawValue === ALONE) {
+    state.pairs[personId] = ALONE;
+    saveState(); renderPairs(); renderPeopleTable(); return;
+  }
+  const pid = parseInt(rawValue);
+  const displaced = state.pairs[pid];
+  if (displaced && displaced !== ALONE) delete state.pairs[displaced];
+  delete state.pairs[pid];
+  state.pairs[personId] = pid;
+  state.pairs[pid]      = personId;
+  saveState(); renderPairs(); renderPeopleTable();
+}
+
+function renderPairs() {
+  const container = document.getElementById('pairs-container');
+  const empty     = document.getElementById('pairs-empty');
+  const count     = document.getElementById('pairs-count');
+  const people    = getFilteredPeople('pairs-route-filter');
+
+  if (!state.people.length) {
+    empty.classList.remove('hidden'); container.innerHTML = ''; count.textContent = ''; return;
+  }
+  empty.classList.add('hidden');
+
+  const aloneList    = state.people.filter(p => state.pairs[p.id] === ALONE);
+  const pairCount    = Math.floor(Object.values(state.pairs).filter(v => v !== ALONE).length / 2);
+  const unpairedList = state.people.filter(p => !state.pairs[p.id]);
+  let countTxt = `${pairCount} pair${pairCount !== 1 ? 's' : ''}`;
+  if (aloneList.length) countTxt += ` · ${aloneList.length} alone`;
+  countTxt += unpairedList.length ? ` · ${unpairedList.length} unpaired` : ' · all assigned ✓';
+  count.textContent = countTxt;
+
+  if (!people.length) {
+    container.innerHTML = '<div class="empty-state"><div>No people in this route yet.</div></div>';
+    return;
+  }
+
+  let html = '<div class="pairs-grid">';
+  people.forEach(person => {
+    const partnerId = state.pairs[person.id];
+    const isAlone   = (partnerId === ALONE);
+
+    const opts = state.people
+      .filter(p => p.id !== person.id)
+      .map(p => `<option value="${p.id}" ${!isAlone && partnerId === p.id ? 'selected' : ''}>${esc(p.name)}${p.route ? ' ['+esc(p.route)+']' : ''}</option>`)
+      .join('');
+
+    const aloneSelected = isAlone ? 'selected' : '';
+    const cardClass = isAlone ? 'pair-alone' : (!partnerId ? 'pair-unpaired' : '');
+
+    const pdKey  = isAlone ? `alone_${person.id}` : (partnerId ? getPairKey(person.id, partnerId) : null);
+    const pdData = (pdKey && state.pairData?.[pdKey]) || { day: '', note: '', truck: '' };
+
+    const pdArgs = isAlone
+      ? `${person.id}, '${ALONE}'`
+      : `${person.id}, ${partnerId}`;
+
+    const truckOpts = (state.trucks || []).map(t =>
+      `<option value="${esc(t)}" ${pdData.truck === t ? 'selected' : ''}>${esc(t)}</option>`
+    ).join('');
+
+    html += `
+      <div class="pair-card ${cardClass}" style="flex-direction:column;align-items:stretch;gap:0.5rem;">
+        <div style="display:flex;align-items:center;gap:0.6rem;">
+          <div style="flex:0 0 auto;min-width:0;overflow:hidden;">
+            <div class="pair-name">${esc(person.name)}</div>
+            <div class="pair-phone">${esc(person.phone)}</div>
+          </div>
+          <span class="pair-arrow">→</span>
+          <select style="flex:1;min-width:0;" onchange="setPair(${person.id}, this.value)">
+            <option value="">— unpaired —</option>
+            <option value="${ALONE}" ${aloneSelected} style="color:#0891b2;font-weight:600;">🧍 Alone</option>
+            ${opts}
+          </select>
+        </div>
+        ${partnerId ? `
+        <div style="display:flex;gap:0.4rem;flex-wrap:wrap;">
+          <select style="flex:0 0 auto;min-width:110px;font-size:0.8rem;padding:0.25rem 0.5rem;"
+                  onchange="updatePairData(${pdArgs}, 'truck', this.value)">
+            <option value="">— Truck —</option>
+            ${truckOpts}
+          </select>
+          <input type="text" placeholder="Note / Assignment…"
+                 value="${esc(pdData.note)}"
+                 style="flex:1;min-width:120px;font-size:0.8rem;padding:0.25rem 0.5rem;"
+                 oninput="updatePairData(${pdArgs}, 'note', this.value)" />
+        </div>` : ''}
+      </div>
+    `;
+  });
+  html += '</div>';
+  container.innerHTML = html;
+}
+
+// ═══════════════════════════════════════════════════════════════
+// TEMPLATE
+// ═══════════════════════════════════════════════════════════════
+function updateTemplatePreview() {
+  const tmpl = document.getElementById('template-input').value;
+  state.template = tmpl;
+  saveState();
+
+  const len  = tmpl.length;
+  const segs = Math.ceil(len / 160) || 1;
+  const cc   = document.getElementById('char-count');
+  cc.textContent = `${len} character${len !== 1 ? 's' : ''}${len > 160 ? ` · ${segs} SMS segments` : ' · fits in 1 SMS'}`;
+  cc.className   = 'char-count' + (len > 320 ? ' char-over' : len > 160 ? ' char-warn' : '');
+
+  const prev   = document.getElementById('template-preview');
+  const paired = state.people.find(p => state.pairs[p.id]);
+  if (paired) {
+    const partner = state.people.find(p => p.id === state.pairs[paired.id]);
+    const pd      = state.pairData?.[getPairKey(paired.id, partner?.id)] || { day: '', note: '' };
+    prev.textContent = applyTemplate(tmpl, paired, partner, pd);
+  } else {
+    prev.textContent = applyTemplate(tmpl,
+      { name: 'Jane Smith', phone: '+15551234567', route: 'Monday' },
+      { name: 'John Doe',   phone: '+15559876543', route: 'Monday' },
+      { day: 'Monday', note: 'North side', truck: 'Truck 4' }
+    );
+  }
+}
+
+function applyTemplate(tmpl, person, partner, pd) {
+  const dispatcher = getActiveDispatcher();
+  const pairDay    = pd?.day   || '';
+  const pairNote   = pd?.note  || '';
+  const pairTruck  = pd?.truck || '';
+  const hadNote    = tmpl.includes('{pairNote}');
+  const hadTruck   = tmpl.includes('{pairTruck}');
+  let result = tmpl
+    .replace(/\{myName\}/g,          person.name   || '')
+    .replace(/\{myPhone\}/g,         person.phone  || '')
+    .replace(/\{myRoute\}/g,         person.route  || '')
+    .replace(/\{partnerName\}/g,     partner ? partner.name  : '')
+    .replace(/\{partnerPhone\}/g,    partner ? partner.phone : '')
+    .replace(/\{pairDay\}/g,         pairDay)
+    .replace(/\{pairTruck\}/g,       pairTruck)
+    .replace(/\{pairNote\}/g,        pairNote)
+    .replace(/\{dispatcherName\}/g,  state.activeDispatcher || '')
+    .replace(/\{dispatcherPhone\}/g, dispatcher?.phone || '');
+  // Auto-append truck/note if they exist and weren't placed via variables
+  if (!hadTruck && pairTruck) result = result.trimEnd() + ' — Truck: ' + pairTruck;
+  if (!hadNote  && pairNote)  result = result.trimEnd() + ' — ' + pairNote;
+  return result;
+}
+
+function insertVar(variable) {
+  const ta = document.getElementById('template-input');
+  const s  = ta.selectionStart, e = ta.selectionEnd;
+  ta.value = ta.value.substring(0, s) + variable + ta.value.substring(e);
+  ta.selectionStart = ta.selectionEnd = s + variable.length;
+  ta.focus();
+  updateTemplatePreview();
+}
+
+// ═══════════════════════════════════════════════════════════════
+// SETTINGS
+// ═══════════════════════════════════════════════════════════════
+function onModeChange() {
+  state.settings.mode = document.querySelector('input[name="mode"]:checked').value;
+  document.getElementById('zapier-settings').classList.toggle('hidden', state.settings.mode !== 'zapier');
+  document.getElementById('st-settings').classList.toggle('hidden',    state.settings.mode !== 'simpletexting');
+  saveSettings();
+}
+
+function saveSettings() {
+  state.settings.zapierUrl = document.getElementById('zapier-url')?.value  || '';
+  state.settings.stApiKey  = document.getElementById('st-api-key')?.value  || '';
+  state.settings.stFrom    = document.getElementById('st-from')?.value     || '';
+  state.settings.sendDelay = parseInt(document.getElementById('send-delay')?.value) || 1200;
+  state.settings.mode      = document.querySelector('input[name="mode"]:checked')?.value || 'zapier';
+  saveState();
+}
+
+function loadSettingsUI() {
+  document.getElementById('zapier-url').value = state.settings.zapierUrl || '';
+  document.getElementById('st-api-key').value = state.settings.stApiKey  || '';
+  document.getElementById('st-from').value    = state.settings.stFrom    || '';
+  document.getElementById('send-delay').value = state.settings.sendDelay || 1200;
+  const mode = state.settings.mode || 'zapier';
+  document.querySelectorAll('input[name="mode"]').forEach(r => { r.checked = (r.value === mode); });
+  document.getElementById('zapier-settings').classList.toggle('hidden', mode !== 'zapier');
+  document.getElementById('st-settings').classList.toggle('hidden',    mode !== 'simpletexting');
+}
+
+function clearAllData() {
+  if (!confirm('Permanently delete ALL data for all users? This cannot be undone.')) return;
+  state  = JSON.parse(JSON.stringify(BAKED_IN.state));
+  state.people = []; state.pairs = {}; nextId = 1;
+  saveState(); renderAll();
+  alert('All data cleared.');
+}
+
+// ═══════════════════════════════════════════════════════════════
+// SEND
+// ═══════════════════════════════════════════════════════════════
+function buildMessages() {
+  const routeFilter = document.getElementById('send-route-filter')?.value || '';
+  const eligible    = routeFilter ? state.people.filter(p => p.route === routeFilter) : state.people;
+  const eligibleIds = new Set(eligible.map(p => p.id));
+  const msgs = [];
+  const seen = new Set();
+  eligible.forEach(person => {
+    if (seen.has(person.id)) return;
+    const partnerId = state.pairs[person.id];
+
+    // Alone — include with themselves as "partner" so {partnerName}/{partnerPhone} populate
+    if (partnerId === ALONE) {
+      const pd = state.pairData?.[`alone_${person.id}`] || { day: '', note: '' };
+      msgs.push({ to: person, partner: person, pd });
+      seen.add(person.id);
+      return;
+    }
+
+    if (!partnerId) return; // truly unpaired, skip
+    seen.add(person.id); seen.add(partnerId);
+    const partner = state.people.find(p => p.id === partnerId);
+    if (!partner) return;
+    const pd = state.pairData?.[getPairKey(person.id, partnerId)] || { day: '', note: '' };
+    msgs.push({ to: person,  partner, pd });
+    // Only include partner's message if partner is also in eligible route (or no filter)
+    if (!routeFilter || eligibleIds.has(partnerId)) {
+      msgs.push({ to: partner, partner: person, pd });
+    }
+  });
+  return msgs;
+}
+
+function renderSend() {
+  const msgs      = buildMessages();
+  const container = document.getElementById('send-preview');
+  const empty     = document.getElementById('send-empty');
+  const warnings  = document.getElementById('send-warnings');
+  const routeFilter = document.getElementById('send-route-filter')?.value || '';
+
+  warnings.innerHTML = '';
+
+  const mode = state.settings.mode;
+  if (mode === 'zapier' && !state.settings.zapierUrl)
+    warnings.innerHTML += `<div class="alert alert-warn">⚠️ No Zapier webhook URL — go to <strong>Settings</strong>.</div>`;
+  if (mode === 'simpletexting' && !state.settings.stApiKey)
+    warnings.innerHTML += `<div class="alert alert-warn">⚠️ No Simple Texting API token — go to <strong>Settings</strong>.</div>`;
+
+  const allEligible = routeFilter ? state.people.filter(p => p.route === routeFilter) : state.people;
+  const unpaired    = allEligible.filter(p => !state.pairs[p.id]);
+  const aloneCount  = allEligible.filter(p => state.pairs[p.id] === ALONE).length;
+  if (unpaired.length)
+    warnings.innerHTML += `<div class="alert alert-warn">⚠️ ${unpaired.length} unpaired (will not receive a text): <strong>${unpaired.map(p => esc(p.name)).join(', ')}</strong></div>`;
+  if (aloneCount)
+    warnings.innerHTML += `<div class="alert alert-info" style="border-color:#06b6d4;background:#ecfeff;color:#0e7490;">🧍 ${aloneCount} person${aloneCount !== 1 ? 's' : ''} assigned as Alone — will receive a text with no partner info.</div>`;
+
+  const dispPhone = getActiveDispatcher()?.phone || '';
+  warnings.innerHTML += `<div class="alert alert-info">📋 Dispatcher: <strong>${esc(state.activeDispatcher)}</strong>${dispPhone ? ` · ${esc(dispPhone)}` : ''}${routeFilter ? ` · Route: <strong>${esc(routeFilter)}</strong>` : ''}</div>`;
+
+  if (!msgs.length) { container.innerHTML = ''; empty.classList.remove('hidden'); return; }
+  empty.classList.add('hidden');
+
+  container.innerHTML = msgs.map((msg, i) => {
+    const text = applyTemplate(state.template, msg.to, msg.partner, msg.pd);
+    return `
+      <div class="preview-item" id="msg-${i}">
+        <div class="preview-header">
+          <div>
+            <div class="preview-name">
+              ${esc(msg.to.name)}
+              ${msg.to.route ? ` <span class="tag tag-purple">${esc(msg.to.route)}</span>` : ''}
+            </div>
+            <div class="preview-phone">${esc(msg.to.phone)}</div>
+          </div>
+          <span class="preview-status status-pending" id="status-${i}">Pending</span>
+        </div>
+        <div class="preview-msg">${esc(text)}</div>
+      </div>
+    `;
+  }).join('');
+}
+
+async function sendAll() {
+  if (isSending) return;
+  const msgs = buildMessages();
+  if (!msgs.length) { alert('No messages to send.'); return; }
+
+  const mode = state.settings.mode;
+  if (mode === 'zapier' && !state.settings.zapierUrl) { alert('Configure a Zapier webhook URL in Settings first.'); return; }
+  if (mode === 'simpletexting' && (!state.settings.stApiKey || !state.settings.stFrom)) { alert('Configure Simple Texting settings first.'); return; }
+
+  const routeFilter = document.getElementById('send-route-filter')?.value || '';
+  if (!confirm(`Send ${msgs.length} messages?\nDispatcher: ${state.activeDispatcher}${routeFilter ? `\nRoute: ${routeFilter}` : '\n(All Routes)'}`)) return;
+
+  isSending = true; stopFlag = false;
+  document.getElementById('send-all-btn').disabled = true;
+  document.getElementById('stop-btn').classList.remove('hidden');
+  document.getElementById('send-progress-bar').classList.remove('hidden');
+
+  let sent = 0, errors = 0;
+
+  for (let i = 0; i < msgs.length; i++) {
+    if (stopFlag) break;
+    const msg    = msgs[i];
+    const text   = applyTemplate(state.template, msg.to, msg.partner, msg.pd);
+    const statEl = document.getElementById(`status-${i}`);
+
+    document.getElementById('send-progress-fill').style.width = Math.round((i / msgs.length) * 100) + '%';
+    document.getElementById('send-status').textContent = `Sending ${i+1} of ${msgs.length}…`;
+    if (statEl) { statEl.textContent = 'Sending…'; statEl.className = 'preview-status status-sending'; }
+
+    try {
+      await sendMessage(msg.to.phone, text, msg.to.name);
+      if (statEl) { statEl.textContent = 'Sent ✓'; statEl.className = 'preview-status status-sent'; }
+      sent++;
+    } catch(err) {
+      if (statEl) { statEl.textContent = 'Error ✕'; statEl.className = 'preview-status status-error'; }
+      errors++;
+      console.error('Send error for', msg.to.name, err);
+    }
+
+    if (i < msgs.length - 1 && !stopFlag) await sleep(state.settings.sendDelay || 1200);
+  }
+
+  document.getElementById('send-progress-fill').style.width = '100%';
+  document.getElementById('send-status').textContent = stopFlag
+    ? `Stopped. ${sent} sent${errors ? `, ${errors} errors` : ''}.`
+    : `Done! ${sent} sent${errors ? `, ${errors} errors` : ' — all successful ✓'}.`;
+  document.getElementById('send-all-btn').disabled = false;
+  document.getElementById('stop-btn').classList.add('hidden');
+  isSending = false;
+}
+
+function stopSending() {
+  stopFlag = true;
+  document.getElementById('send-status').textContent = 'Stopping after current message…';
+}
+
+async function sendMessage(phone, message, name) {
+  const { mode, zapierUrl, stApiKey, stFrom } = state.settings;
+  if (mode === 'zapier') {
+    if (!zapierUrl) throw new Error('No Zapier URL');
+    const body = new URLSearchParams({ to: phone, message, name, dispatcher: state.activeDispatcher || '' });
+    await fetch(zapierUrl, { method: 'POST', mode: 'no-cors', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: body.toString() });
+  } else {
+    if (!stApiKey) throw new Error('No API key');
+    if (!stFrom)   throw new Error('No From number');
+    const res = await fetch('https://app.simpletexting.com/v2/api/messages', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${stApiKey}` },
+      body: JSON.stringify({ contactPhone: phone, message, accountPhone: stFrom }),
+    });
+    if (!res.ok) { const b = await res.text().catch(() => ''); throw new Error(`HTTP ${res.status}: ${b}`); }
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════
+// UTILITIES
+// ═══════════════════════════════════════════════════════════════
+function esc(str) {
+  return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+}
+function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+
+// ═══════════════════════════════════════════════════════════════
+// INIT
+// ═══════════════════════════════════════════════════════════════
+function init() {
+  document.getElementById('new-name').addEventListener('keydown', e => { if (e.key === 'Enter') document.getElementById('new-phone').focus(); });
+  document.getElementById('new-phone').addEventListener('keydown', e => { if (e.key === 'Enter') addPerson(); });
+  document.getElementById('new-dispatcher-name').addEventListener('keydown', e => { if (e.key === 'Enter') addDispatcher(); });
+  document.getElementById('new-email-recipient').addEventListener('keydown', e => { if (e.key === 'Enter') addEmailRecipient(); });
+  document.getElementById('new-route-name').addEventListener('keydown', e => { if (e.key === 'Enter') addRoute(); });
+  document.getElementById('new-truck-name').addEventListener('keydown', e => { if (e.key === 'Enter') addTruck(); });
+
+  db.ref(DB_PATH).on('value',
+    snapshot => {
+      const data = snapshot.val();
+      if (!data) {
+        saveState();
+      } else {
+        const oldV = data.state?._v || 0;
+        state  = migrateState(data.state);
+        nextId = data.nextId || BAKED_IN.nextId;
+        // persist migration changes to Firebase
+        if ((state._v || 0) > oldV) saveState();
+      }
+      if (!_initialized) {
+        document.getElementById('loading-overlay').classList.add('hidden');
+        _initialized = true;
+      }
+      setSyncBadge('live');
+      renderAll();
+    },
+    error => {
+      console.error('Firebase error:', error);
+      setSyncBadge('error');
+      if (!_initialized) {
+        document.getElementById('loading-overlay').classList.add('hidden');
+        _initialized = true;
+        renderAll();
+      }
+    }
+  );
+}
+
+init();
+
+// Register service worker for PWA
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.register('sw.js').catch(() => {});
+}
+</script>
+</body>
+</html>
