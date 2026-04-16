@@ -1595,15 +1595,34 @@ function applyTemplate(tmpl, person, partner, pd) {
   // so the grammar reads naturally instead of "Your partner is working alone"
   if (isAlone) {
     // Match "Your partner is {partnerName} — {partnerPhone}" and variations
-    // Captures: the whole "partner is X — Y" phrase including {partnerName} and optional {partnerPhone}
     result = result.replace(
       /your partner is \{partnerName\}(\s*[—\-–,]\s*\{partnerPhone\})?/gi,
       'you are working alone'
     );
-    // Also handle "partner: {partnerName}" or "with {partnerName}"
+    // Also handle "Partner: {partnerName}" (at sentence start) → "You are working alone"
+    result = result.replace(
+      /(^|[.!?]\s+)partner:?\s*\{partnerName\}(\s*[—\-–,]\s*\{partnerPhone\})?/gi,
+      (m, pre) => pre + 'you are working alone'
+    );
+    // And "with {partnerName}" → "working alone" (mid-sentence)
     result = result.replace(
       /(?:with|partner:?)\s*\{partnerName\}(\s*[—\-–,]\s*\{partnerPhone\})?/gi,
       'working alone'
+    );
+    // Remove "Their/His/Her number is {partnerPhone}." style phrases (with trailing punctuation)
+    result = result.replace(
+      /\s*(?:their|his|her|partner'?s?|partner)\s+(?:number|phone|cell)\s+is\s*\{partnerPhone\}[.!?,;]?/gi,
+      ''
+    );
+    // Remove "Call/Text/Contact {partnerName} at {partnerPhone}." style phrases
+    result = result.replace(
+      /\s*(?:call|text|contact|reach|message)\s+(?:them|him|her|\{partnerName\})(?:\s+at\s*\{partnerPhone\})?[.!?,;]?/gi,
+      ''
+    );
+    // Remove "Reach out anytime" / "Reach out to them anytime" / "Feel free to reach out if you need anything" style phrases
+    result = result.replace(
+      /\s*(?:please\s+|feel\s+free\s+to\s+)?reach\s+out\s+[^.!?]*[.!?,;]?/gi,
+      ''
     );
     // Any remaining standalone {partnerName} becomes "working alone"
     result = result.replace(/\{partnerName\}/g, 'working alone');
