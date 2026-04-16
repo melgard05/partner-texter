@@ -1586,29 +1586,82 @@ function applyTemplate(tmpl, person, partner, pd) {
   const pairTruck  = pd?.truck || '';
   const hadNote    = tmpl.includes('{pairNote}');
   const hadTruck   = tmpl.includes('{pairTruck}');
-  // If no partner, person is working alone
-  const isAlone      = !partner;
-  const partnerName  = isAlone ? 'working alone'      : (partner.name  || '');
-  const partnerPhone = isAlone ? ''                   : (partner.phone || '');
-  let result = tmpl
+  const isAlone    = !partner;
+
+  let result = tmpl;
+
+  // ── ALONE HANDLING ─────────────────────────────────────────────
+  // Replace common "partner" phrases with "you are working alone"
+  // so the grammar reads naturally instead of "Your partner is working alone"
+  if (isAlone) {
+    // Match "Your partner is {partnerName} — {partnerPhone}" and variations
+    // Captures: the whole "partner is X — Y" phrase including {partnerName} and optional {partnerPhone}
+    result = result.replace(
+      /your partner is \{partnerName\}(\s*[—\-–,]\s*\{partnerPhone\})?/gi,
+      'you are working alone'
+    );
+    // Also handle "partner: {partnerName}" or "with {partnerName}"
+    result = result.replace(
+      /(?:with|partner:?)\s*\{partnerName\}(\s*[—\-–,]\s*\{partnerPhone\})?/gi,
+      'working alone'
+    );
+    // Any remaining standalone {partnerName} becomes "working alone"
+    result = result.replace(/\{partnerName\}/g, 'working alone');
+    // Any remaining {partnerPhone} becomes empty (plus clean adjacent punctuation)
+    result = result.replace(/\s*[—\-–,]\s*\{partnerPhone\}/g, '');
+    result = result.replace(/\{partnerPhone\}/g, '');
+  }
+
+  // ── EMPTY pairNote HANDLING ────────────────────────────────────
+  // If {pairNote} is empty, strip the whole phrase around it like:
+  //   "Today's assignment: {pairNote}."  →  ""
+  //   "Assignment: {pairNote}"           →  ""
+  //   "— {pairNote}"                     →  ""
+  if (!pairNote) {
+    // Remove phrases like "Today's assignment: {pairNote}." (with trailing punctuation)
+    result = result.replace(
+      /\s*(?:today'?s?\s+)?(?:assignment|note|task)s?:?\s*\{pairNote\}[.!?,;]?/gi,
+      ''
+    );
+    // Remove "— {pairNote}" or ", {pairNote}" fragments
+    result = result.replace(/\s*[—\-–,]\s*\{pairNote\}[.!?,;]?/g, '');
+    // Any remaining {pairNote} becomes empty
+    result = result.replace(/\{pairNote\}/g, '');
+  }
+
+  // ── STANDARD SUBSTITUTIONS ─────────────────────────────────────
+  result = result
     .replace(/\{myName\}/g,          person.name   || '')
     .replace(/\{myPhone\}/g,         person.phone  || '')
     .replace(/\{myRoute\}/g,         person.route  || '')
-    .replace(/\{partnerName\}/g,     partnerName)
-    .replace(/\{partnerPhone\}/g,    partnerPhone)
+    .replace(/\{partnerName\}/g,     partner ? partner.name  : '')
+    .replace(/\{partnerPhone\}/g,    partner ? partner.phone : '')
     .replace(/\{pairDay\}/g,         pairDay)
     .replace(/\{pairTruck\}/g,       pairTruck)
     .replace(/\{pairNote\}/g,        pairNote)
     .replace(/\{dispatcherName\}/g,  state.activeDispatcher || '')
     .replace(/\{dispatcherPhone\}/g, dispatcher?.phone || '');
-  // Clean up: if alone, remove leftover " — " or dangling punctuation around the empty partner phone
+
+  // ── CLEANUP ────────────────────────────────────────────────────
+  // Collapse any artifacts from removed fragments
+  result = result
+    .replace(/\s*—\s*\./g, '.')           // " — ." → "."
+    .replace(/\s*—\s*,/g, ',')            // " — ," → ","
+    .replace(/\s*—\s*—\s*/g, ' — ')       // " —  — " → " — "
+    .replace(/\s*—\s*$/g, '')             // trailing " —"
+    .replace(/\.{2,}/g, '.')              // ".."  → "."
+    .replace(/\s{2,}/g, ' ')              // double spaces
+    .replace(/\s+([.!?,;])/g, '$1')       // " ." → "."
+    .trim();
+
+  // Capitalize "you are working alone" when it starts a sentence
+  // (after ". ", "! ", "? ", or at the very start of the string)
   if (isAlone) {
-    result = result
-      .replace(/\s*—\s*$/,'')                       // trailing em-dash
-      .replace(/\s+—\s+\.\s*/g, '. ')               // " — . " between sentences
-      .replace(/\s{2,}/g, ' ')                      // collapse double spaces
-      .trim();
+    result = result.replace(/(^|[.!?]\s+)you are working alone/g,
+      (match, pre) => pre + 'You are working alone');
   }
+
+  // Auto-append truck/note if they weren't placed via variables and are non-empty
   if (!hadTruck && pairTruck) result = result.trimEnd() + ' — Truck: ' + pairTruck;
   if (!hadNote  && pairNote)  result = result.trimEnd() + ' — ' + pairNote;
   return result;
