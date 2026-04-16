@@ -1619,9 +1619,9 @@ function applyTemplate(tmpl, person, partner, pd) {
       /\s*(?:call|text|contact|reach|message)\s+(?:them|him|her|\{partnerName\})(?:\s+at\s*\{partnerPhone\})?[.!?,;]?/gi,
       ''
     );
-    // Remove "Reach out anytime" / "Reach out to them anytime" / "Feel free to reach out if you need anything" style phrases
+    // Remove "Reach out anytime" / "Reach out to them anytime" — only the phrase itself, not what follows
     result = result.replace(
-      /\s*(?:please\s+|feel\s+free\s+to\s+)?reach\s+out\s+[^.!?]*[.!?,;]?/gi,
+      /\s*(?:please\s+|feel\s+free\s+to\s+)?reach\s+out\s*(?:to\s+(?:them|him|her|your\s+partner)\s*)?(?:anytime|any\s+time)?[.!?,;]?/gi,
       ''
     );
     // Any remaining standalone {partnerName} becomes "working alone"
@@ -1672,6 +1672,11 @@ function applyTemplate(tmpl, person, partner, pd) {
     .replace(/\s{2,}/g, ' ')              // double spaces
     .replace(/\s+([.!?,;])/g, '$1')       // " ." → "."
     .trim();
+
+  // Fix edge cases when alone with empty route/note: "be on alone" → "be working alone"
+  if (isAlone) {
+    result = result.replace(/\b(be|be on|on)\s+alone\b/gi, 'be working alone');
+  }
 
   // Capitalize "you are working alone" when it starts a sentence
   // (after ". ", "! ", "? ", or at the very start of the string)
