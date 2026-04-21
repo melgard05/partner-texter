@@ -357,6 +357,7 @@
         <span class="var-badge" onclick="insertVar('{partnerName}')">{partnerName}</span>
         <span class="var-badge" onclick="insertVar('{partnerPhone}')">{partnerPhone}</span>
         <span class="var-badge" onclick="insertVar('{pairTruck}')">{pairTruck}</span>
+        <span class="var-badge" onclick="insertVar('{pairRoute}')">{pairRoute}</span>
         <span class="var-badge" onclick="insertVar('{pairNote}')">{pairNote}</span>
         <span class="var-badge" style="background:#fef3c7;color:#92400e;border-color:#fcd34d;" onclick="insertVar('{dispatcherName}')">{dispatcherName} ★</span>
         <span class="var-badge" style="background:#fef3c7;color:#92400e;border-color:#fcd34d;" onclick="insertVar('{dispatcherPhone}')">{dispatcherPhone} ★</span>
@@ -1423,7 +1424,7 @@ function getPairKey(id1, id2) {
 function updatePairData(id1, id2, field, value) {
   const key = getPairKey(id1, id2);
   if (!state.pairData) state.pairData = {};
-  if (!state.pairData[key]) state.pairData[key] = { day: '', note: '', truck: '' };
+  if (!state.pairData[key]) state.pairData[key] = { day: '', note: '', truck: '', route: '' };
   state.pairData[key][field] = value;
   saveState();
 }
@@ -1500,7 +1501,7 @@ function renderPairs() {
     const pdKey  = isAlone
       ? `alone_${person.id}`
       : (partnerId ? getPairKey(person.id, partnerId) : null);
-    const pdData = (pdKey && state.pairData?.[pdKey]) || { day: '', note: '', truck: '' };
+    const pdData = (pdKey && state.pairData?.[pdKey]) || { day: '', note: '', truck: '', route: '' };
 
     // Build the updatePairData arguments — for alone, use person.id and ALONE
     const pdArgsStr = isAlone
@@ -1509,6 +1510,10 @@ function renderPairs() {
 
     const truckOpts = (state.trucks || []).map(t =>
       `<option value="${esc(t)}" ${pdData.truck === t ? 'selected' : ''}>${esc(t)}</option>`
+    ).join('');
+
+    const routeOpts = (state.routes || []).map(r =>
+      `<option value="${esc(r)}" ${pdData.route === r ? 'selected' : ''}>${esc(r)}</option>`
     ).join('');
 
     html += `
@@ -1532,6 +1537,11 @@ function renderPairs() {
                   onchange="updatePairData(${pdArgsStr}, 'truck', this.value)">
             <option value="">— Truck —</option>
             ${truckOpts}
+          </select>
+          <select style="flex:0 0 auto;min-width:110px;font-size:0.8rem;padding:0.25rem 0.5rem;"
+                  onchange="updatePairData(${pdArgsStr}, 'route', this.value)">
+            <option value="">— Route —</option>
+            ${routeOpts}
           </select>
           <input type="text" placeholder="Note / Assignment…"
                  value="${esc(pdData.note || '')}"
@@ -1574,7 +1584,7 @@ function updateTemplatePreview() {
     prev.textContent = applyTemplate(tmpl,
       { name: 'Jane Smith', phone: '+15551234567', route: 'Monday' },
       { name: 'John Doe',   phone: '+15559876543', route: 'Monday' },
-      { day: 'Monday', note: 'North side', truck: 'Truck 4' }
+      { day: 'Monday', note: 'North side', truck: 'Truck 4', route: 'Route 3' }
     );
   }
 }
@@ -1584,8 +1594,10 @@ function applyTemplate(tmpl, person, partner, pd) {
   const pairDay    = pd?.day   || '';
   const pairNote   = pd?.note  || '';
   const pairTruck  = pd?.truck || '';
+  const pairRoute  = pd?.route || '';
   const hadNote    = tmpl.includes('{pairNote}');
   const hadTruck   = tmpl.includes('{pairTruck}');
+  const hadRoute   = tmpl.includes('{pairRoute}');
   const isAlone    = !partner;
 
   let result = tmpl;
@@ -1657,6 +1669,7 @@ function applyTemplate(tmpl, person, partner, pd) {
     .replace(/\{partnerPhone\}/g,    partner ? partner.phone : '')
     .replace(/\{pairDay\}/g,         pairDay)
     .replace(/\{pairTruck\}/g,       pairTruck)
+    .replace(/\{pairRoute\}/g,       pairRoute)
     .replace(/\{pairNote\}/g,        pairNote)
     .replace(/\{dispatcherName\}/g,  state.activeDispatcher || '')
     .replace(/\{dispatcherPhone\}/g, dispatcher?.phone || '');
@@ -1685,8 +1698,10 @@ function applyTemplate(tmpl, person, partner, pd) {
       (match, pre) => pre + 'You are working alone');
   }
 
-  // Auto-append truck/note if they weren't placed via variables and are non-empty
+  // Auto-append truck/route/note if they weren't placed via variables and are non-empty
+  // Order: truck → route → note (note last so it stays at the very end)
   if (!hadTruck && pairTruck) result = result.trimEnd() + ' — Truck: ' + pairTruck;
+  if (!hadRoute && pairRoute) result = result.trimEnd() + ' — Route: ' + pairRoute;
   if (!hadNote  && pairNote)  result = result.trimEnd() + ' — ' + pairNote;
   return result;
 }
