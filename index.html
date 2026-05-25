@@ -306,7 +306,7 @@
       <div id="people-table-wrapper" class="hidden" style="overflow-x:auto;-webkit-overflow-scrolling:touch;">
         <table id="people-table">
           <thead>
-            <tr><th>Name</th><th>Phone</th><th>Route</th><th>Partner</th><th></th></tr>
+            <tr><th>Name</th><th>Phone</th><th>Partner</th><th></th></tr>
           </thead>
           <tbody id="people-tbody"></tbody>
         </table>
@@ -721,6 +721,27 @@ function migrateState(s) {
     }
     s._v = 3;
   }
+  // v4: migrate pairData from pair-keyed ("3_7", "alone_5") to per-person keyed (personId)
+  if (!s._v || s._v < 4) {
+    const migrated = {};
+    Object.keys(s.pairData || {}).forEach(key => {
+      const entry = s.pairData[key] || {};
+      if (/^\d+$/.test(key)) {
+        // already per-person
+        migrated[key] = { day:'', note:'', truck:'', route:'', ...entry };
+      } else if (key.startsWith('alone_')) {
+        const pid = key.slice(6);
+        migrated[pid] = { day:'', note:'', truck:'', route:'', ...entry };
+      } else if (key.includes('_')) {
+        // old pair key "A_B" → copy to both people
+        key.split('_').forEach(pid => {
+          migrated[pid] = { day:'', note:'', truck:'', route:'', ...entry };
+        });
+      }
+    });
+    s.pairData = migrated;
+    s._v = 4;
+  }
   return s;
 }
 
@@ -1103,21 +1124,29 @@ function buildEmailContent() {
   if (pairs.length) {
     body += `PAIRS (${pairs.length}):\r\n`;
     pairs.forEach(([a, b], i) => {
-      const pd = state.pairData?.[getPairKey(a.id, b.id)] || {};
+      const pdA = state.pairData?.[a.id] || {};
+      const pdB = state.pairData?.[b.id] || {};
       body += `\r\n  ${i+1}. ${a.name}${a.route ? ` [${a.route}]` : ''}  ↔  ${b.name}${b.route ? ` [${b.route}]` : ''}`;
-      if (pd.truck) body += `  🚛 ${pd.truck}`;
-      if (pd.note)  body += `  — ${pd.note}`;
       body += `\r\n`;
-      body += `     ${a.name}: ${a.phone}\r\n`;
-      body += `     ${b.name}: ${b.phone}\r\n`;
+      body += `     ${a.name}: ${a.phone}`;
+      if (pdA.truck) body += `  🚛 ${pdA.truck}`;
+      if (pdA.route) body += `  🛣 ${pdA.route}`;
+      if (pdA.note)  body += `  — ${pdA.note}`;
+      body += `\r\n`;
+      body += `     ${b.name}: ${b.phone}`;
+      if (pdB.truck) body += `  🚛 ${pdB.truck}`;
+      if (pdB.route) body += `  🛣 ${pdB.route}`;
+      if (pdB.note)  body += `  — ${pdB.note}`;
+      body += `\r\n`;
     });
   }
   if (aloneList.length) {
     body += `\r\nALONE (${aloneList.length}):\r\n`;
     aloneList.forEach(p => {
-      const pd = state.pairData?.[`alone_${p.id}`] || {};
+      const pd = state.pairData?.[p.id] || {};
       body += `  • ${p.name}${p.route ? ` [${p.route}]` : ''} (${p.phone})`;
       if (pd.truck) body += ` — 🚛 ${pd.truck}`;
+      if (pd.route) body += ` — 🛣 ${pd.route}`;
       if (pd.note)  body += ` — ${pd.note}`;
       body += `\r\n`;
     });
@@ -1295,19 +1324,9 @@ function renderPeopleTable() {
     const partner   = (partnerId && partnerId !== ALONE) ? state.people.find(x => x.id === partnerId) : null;
     const tr = document.createElement('tr');
 
-    const routeOpts = '<option value="">— None —</option>'
-      + state.routes.map(r => `<option value="${esc(r)}" ${p.route === r ? 'selected' : ''}>${esc(r)}</option>`).join('');
-
     tr.innerHTML = `
       <td><strong>${esc(p.name)}</strong></td>
       <td style="font-family:monospace;font-size:0.83rem;">${esc(p.phone)}</td>
-      <td>
-        <select style="width:auto;min-width:110px;font-size:0.8rem;padding:0.25rem 0.5rem;"
-                data-route-select="${p.id}"
-                onchange="setPersonRoute(${p.id}, this.value)">
-          ${routeOpts}
-        </select>
-      </td>
       <td>${partnerId === ALONE
         ? `<span class="tag" style="background:#cffafe;color:#0e7490;">🧍 Alone</span>`
         : partner
@@ -1421,12 +1440,39 @@ function getPairKey(id1, id2) {
   return [id1, id2].sort((a, b) => a - b).join('_');
 }
 
-function updatePairData(id1, id2, field, value) {
-  const key = getPairKey(id1, id2);
+function getPairData(personId) {
   if (!state.pairData) state.pairData = {};
-  if (!state.pairData[key]) state.pairData[key] = { day: '', note: '', truck: '', route: '' };
-  state.pairData[key][field] = value;
+  if (!state.pairData[personId]) state.pairData[personId] = { day:'', note:'', truck:'', route:'' };
+  return state.pairData[personId];
+}
+
+// Save a field for one person only (used for live typing in the note field — no prompt)
+function setPairField(personId, field, value) {
+  getPairData(personId)[field] = value;
   saveState();
+}
+
+// Save a field and, if the person has a real partner, offer to apply the same to them
+function applyPairField(personId, partnerId, field, value) {
+  getPairData(personId)[field] = value;
+
+  const hasRealPartner = partnerId && partnerId !== ALONE && partnerId !== 'null';
+  if (hasRealPartner) {
+    const pid     = parseInt(partnerId);
+    const partner = state.people.find(p => p.id === pid);
+    if (partner) {
+      const labels = { truck: 'truck', route: 'route', note: 'note / assignment' };
+      const label  = labels[field] || field;
+      const prompt = value
+        ? `Apply this ${label} to ${partner.name} too?`
+        : `Clear the ${label} for ${partner.name} too?`;
+      if (confirm(prompt)) {
+        getPairData(pid)[field] = value;
+      }
+    }
+  }
+  saveState();
+  renderPairs();
 }
 
 function clearPairs() {
@@ -1497,16 +1543,11 @@ function renderPairs() {
     const aloneSelected = isAlone ? 'selected' : '';
     const cardClass = isAlone ? 'pair-alone' : (!partnerId ? 'pair-unpaired' : '');
 
-    // FIX #4: Alone pair data key and display
-    const pdKey  = isAlone
-      ? `alone_${person.id}`
-      : (partnerId ? getPairKey(person.id, partnerId) : null);
-    const pdData = (pdKey && state.pairData?.[pdKey]) || { day: '', note: '', truck: '', route: '' };
+    // Per-person pair data (truck/route/note belong to each individual)
+    const pdData = (state.pairData?.[person.id]) || { day: '', note: '', truck: '', route: '' };
 
-    // Build the updatePairData arguments — for alone, use person.id and ALONE
-    const pdArgsStr = isAlone
-      ? `${person.id}, '${ALONE}'`
-      : `${person.id}, ${partnerId}`;
+    // Partner argument for the sync prompt — ALONE/none means no partner to sync to
+    const partnerArg = isAlone ? `'${ALONE}'` : (partnerId ? partnerId : 'null');
 
     const truckOpts = (state.trucks || []).map(t =>
       `<option value="${esc(t)}" ${pdData.truck === t ? 'selected' : ''}>${esc(t)}</option>`
@@ -1534,19 +1575,20 @@ function renderPairs() {
         ${hasPair ? `
         <div style="display:flex;gap:0.4rem;flex-wrap:wrap;">
           <select style="flex:0 0 auto;min-width:110px;font-size:0.8rem;padding:0.25rem 0.5rem;"
-                  onchange="updatePairData(${pdArgsStr}, 'truck', this.value)">
+                  onchange="applyPairField(${person.id}, ${partnerArg}, 'truck', this.value)">
             <option value="">— Truck —</option>
             ${truckOpts}
           </select>
           <select style="flex:0 0 auto;min-width:110px;font-size:0.8rem;padding:0.25rem 0.5rem;"
-                  onchange="updatePairData(${pdArgsStr}, 'route', this.value)">
+                  onchange="applyPairField(${person.id}, ${partnerArg}, 'route', this.value)">
             <option value="">— Route —</option>
             ${routeOpts}
           </select>
           <input type="text" placeholder="Note / Assignment…"
                  value="${esc(pdData.note || '')}"
                  style="flex:1;min-width:120px;font-size:0.8rem;padding:0.25rem 0.5rem;"
-                 oninput="updatePairData(${pdArgsStr}, 'note', this.value)" />
+                 oninput="setPairField(${person.id}, 'note', this.value)"
+                 onchange="applyPairField(${person.id}, ${partnerArg}, 'note', this.value)" />
         </div>` : ''}
         ${isAlone ? '<div style="font-size:0.75rem;color:#0891b2;font-weight:600;">🧍 Working Alone</div>' : ''}
       </div>
@@ -1576,9 +1618,7 @@ function updateTemplatePreview() {
     const pid     = state.pairs[paired.id];
     const isAlone = (pid === ALONE);
     const partner = isAlone ? null : state.people.find(p => p.id === pid);
-    const pd      = isAlone
-      ? (state.pairData?.[`alone_${paired.id}`] || { day: '', note: '' })
-      : (state.pairData?.[getPairKey(paired.id, pid)] || { day: '', note: '' });
+    const pd      = state.pairData?.[paired.id] || { day: '', note: '', truck: '', route: '' };
     prev.textContent = applyTemplate(tmpl, paired, partner, pd);
   } else {
     prev.textContent = applyTemplate(tmpl,
@@ -1769,7 +1809,7 @@ function buildMessages() {
     const partnerId = state.pairs[person.id];
 
     if (partnerId === ALONE) {
-      const pd = state.pairData?.[`alone_${person.id}`] || { day: '', note: '', truck: '' };
+      const pd = state.pairData?.[person.id] || { day: '', note: '', truck: '', route: '' };
       msgs.push({ to: person, partner: null, pd, isAlone: true });
       seen.add(person.id);
       return;
@@ -1779,10 +1819,11 @@ function buildMessages() {
     seen.add(person.id); seen.add(partnerId);
     const partner = state.people.find(p => p.id === partnerId);
     if (!partner) return;
-    const pd = state.pairData?.[getPairKey(person.id, partnerId)] || { day: '', note: '', truck: '' };
-    msgs.push({ to: person,  partner, pd, isAlone: false });
+    const pdPerson  = state.pairData?.[person.id]  || { day: '', note: '', truck: '', route: '' };
+    const pdPartner = state.pairData?.[partnerId]  || { day: '', note: '', truck: '', route: '' };
+    msgs.push({ to: person,  partner, pd: pdPerson, isAlone: false });
     if (!routeFilter || eligibleIds.has(partnerId)) {
-      msgs.push({ to: partner, partner: person, pd, isAlone: false });
+      msgs.push({ to: partner, partner: person, pd: pdPartner, isAlone: false });
     }
   });
   return msgs;
