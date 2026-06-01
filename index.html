@@ -263,6 +263,7 @@
     <button class="tab-btn" onclick="switchTab('pairs', this)">🔗 Pairs</button>
     <button class="tab-btn" onclick="switchTab('template', this)">✉️ Template</button>
     <button class="tab-btn" onclick="switchTab('send', this)">🚀 Send</button>
+    <button class="tab-btn" onclick="switchTab('history', this)">📜 History</button>
     <button class="tab-btn" onclick="switchTab('settings', this)">⚙️ Settings</button>
   </div>
 
@@ -325,6 +326,7 @@
       <div class="action-bar">
         <button class="btn btn-primary" onclick="shufflePairs()">🔀 Random Shuffle</button>
         <button class="btn btn-outline" onclick="shufflePairsFiltered()" id="shuffle-route-btn" style="display:none;">🔀 Shuffle This Route</button>
+        <button class="btn btn-outline" onclick="saveHistorySnapshotManual()" title="Save current pairings to history">📜 Save Snapshot</button>
         <button class="btn btn-outline" onclick="resetPairings()" style="color:var(--danger);border-color:var(--danger);">🔄 Reset Pairings</button>
         <span style="margin-left:auto;font-size:0.85rem;color:var(--muted);" id="pairs-count"></span>
       </div>
@@ -404,6 +406,64 @@
         <button class="btn btn-outline" onclick="emailPairings()" style="color:#0369a1;border-color:#7dd3fc;">📧 Email Pairings</button>
         <span id="send-status" style="font-size:0.85rem;color:var(--muted);"></span>
       </div>
+    </div>
+  </div>
+
+  <!-- ══════════════ HISTORY ══════════════ -->
+  <div id="tab-history" class="hidden">
+    <div class="card">
+      <div class="card-title">Pairing History</div>
+      <p style="font-size:0.85rem;color:var(--muted);margin-bottom:0.75rem;">
+        Snapshots auto-save when you send messages, and can also be saved manually from the Pairs tab.
+      </p>
+      <div style="display:flex;gap:0.5rem;flex-wrap:wrap;align-items:end;margin-bottom:0.75rem;">
+        <div style="flex:1;min-width:140px;">
+          <label style="display:block;font-size:0.78rem;color:var(--muted);margin-bottom:0.2rem;">Date Range</label>
+          <select id="history-range-filter" onchange="renderHistory()" style="width:100%;font-size:0.85rem;padding:0.3rem 0.5rem;">
+            <option value="30">Last 30 days</option>
+            <option value="7">Last 7 days</option>
+            <option value="90">Last 90 days</option>
+            <option value="365">Last year</option>
+            <option value="all">All time</option>
+          </select>
+        </div>
+        <div style="flex:1;min-width:140px;">
+          <label style="display:block;font-size:0.78rem;color:var(--muted);margin-bottom:0.2rem;">Day of Week</label>
+          <select id="history-dow-filter" onchange="renderHistory()" style="width:100%;font-size:0.85rem;padding:0.3rem 0.5rem;">
+            <option value="">All days</option>
+            <option value="Monday">Monday</option>
+            <option value="Tuesday">Tuesday</option>
+            <option value="Wednesday">Wednesday</option>
+            <option value="Thursday">Thursday</option>
+            <option value="Friday">Friday</option>
+            <option value="Saturday">Saturday</option>
+            <option value="Sunday">Sunday</option>
+          </select>
+        </div>
+        <div style="flex:1;min-width:160px;">
+          <label style="display:block;font-size:0.78rem;color:var(--muted);margin-bottom:0.2rem;">Employee</label>
+          <select id="history-person-filter" onchange="renderHistory()" style="width:100%;font-size:0.85rem;padding:0.3rem 0.5rem;">
+            <option value="">Everyone</option>
+          </select>
+        </div>
+        <div style="min-width:100px;">
+          <label style="display:block;font-size:0.78rem;color:var(--muted);margin-bottom:0.2rem;">Sort</label>
+          <select id="history-sort" onchange="renderHistory()" style="width:100%;font-size:0.85rem;padding:0.3rem 0.5rem;">
+            <option value="desc">Newest first</option>
+            <option value="asc">Oldest first</option>
+          </select>
+        </div>
+      </div>
+      <div style="display:flex;gap:0.5rem;flex-wrap:wrap;margin-bottom:0.75rem;">
+        <button class="btn btn-outline btn-sm" onclick="exportHistoryCSV()">⬇️ Export CSV</button>
+        <span id="history-count" style="margin-left:auto;font-size:0.85rem;color:var(--muted);align-self:center;"></span>
+      </div>
+      <div id="history-empty" class="empty-state hidden">
+        <div class="empty-icon">📜</div>
+        <div>No saved pairings yet.</div>
+        <div style="font-size:0.85rem;color:var(--muted);margin-top:0.5rem;">Save a snapshot from the Pairs tab, or send messages to auto-save.</div>
+      </div>
+      <div id="history-container"></div>
     </div>
   </div>
 
@@ -784,6 +844,7 @@ function switchTab(tab, btn) {
   if (tab === 'pairs')    { populateRouteFilter('pairs-route-filter'); renderPairs(); }
   if (tab === 'template') { document.getElementById('template-input').value = state.template; updateTemplatePreview(); }
   if (tab === 'send')     { populateRouteFilter('send-route-filter'); renderSend(); }
+  if (tab === 'history')  { populateHistoryPersonFilter(); renderHistory(); }
   if (tab === 'settings') { loadSettingsUI(); renderDispatcherEditor(); renderEmailRecipientList(); renderRouteEditor(); renderTruckEditor(); }
 }
 
@@ -1487,6 +1548,277 @@ function resetPairings() {
   clearPairs();
 }
 
+// ═══════════════════════════════════════════════════════════════
+// HISTORY (saved pairing snapshots)
+// ═══════════════════════════════════════════════════════════════
+const HISTORY_DB_PATH = 'partnerTexterHistory';
+let historyData = {}; // keyed by date "YYYY-MM-DD"
+
+function getTodayDateStr() {
+  const d = new Date();
+  return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0');
+}
+
+function getDayOfWeek(dateStr) {
+  // dateStr "YYYY-MM-DD" — parse as local date (avoid UTC offset shift)
+  const [y, m, day] = dateStr.split('-').map(Number);
+  const d = new Date(y, m - 1, day);
+  return ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'][d.getDay()];
+}
+
+function buildCurrentSnapshot(source) {
+  // Build a snapshot of CURRENT pairings (used for "for tomorrow" — the date stored is tomorrow's,
+  // matching the email's "Tomorrow you will be…" semantics)
+  const dateStr   = getTomorrowDateStr();
+  const dayOfWeek = getDayOfWeek(dateStr);
+  const dispatcher = state.activeDispatcher || '';
+
+  const seen = new Set();
+  const pairsList = [];
+  const aloneList = [];
+
+  state.people.forEach(p => {
+    if (seen.has(p.id)) return;
+    const partnerId = state.pairs[p.id];
+    if (partnerId === ALONE) {
+      const pd = state.pairData?.[p.id] || {};
+      aloneList.push({
+        personId:    p.id,
+        personName:  p.name,
+        personPhone: p.phone,
+        truck:       pd.truck || '',
+        route:       pd.route || '',
+        note:        pd.note  || ''
+      });
+      seen.add(p.id);
+      return;
+    }
+    if (!partnerId) return;
+    const partner = state.people.find(x => x.id === partnerId);
+    if (!partner) return;
+    const pdA = state.pairData?.[p.id]       || {};
+    const pdB = state.pairData?.[partnerId]  || {};
+    pairsList.push({
+      aId:    p.id,    aName: p.name,    aPhone: p.phone,
+      bId:    partnerId, bName: partner.name, bPhone: partner.phone,
+      truckA: pdA.truck || '', routeA: pdA.route || '', noteA: pdA.note || '',
+      truckB: pdB.truck || '', routeB: pdB.route || '', noteB: pdB.note || ''
+    });
+    seen.add(p.id);
+    seen.add(partnerId);
+  });
+
+  return {
+    date:       dateStr,
+    dayOfWeek:  dayOfWeek,
+    savedAt:    Date.now(),
+    source:     source || 'manual',
+    dispatcher: dispatcher,
+    pairs:      pairsList,
+    alone:      aloneList
+  };
+}
+
+function saveHistorySnapshot(source) {
+  const snap = buildCurrentSnapshot(source);
+  // Key by date — latest save for that date wins
+  historyData[snap.date] = snap;
+  db.ref(HISTORY_DB_PATH + '/' + snap.date).set(snap).catch(e => {
+    console.error('History save failed:', e);
+  });
+  return snap;
+}
+
+function saveHistorySnapshotManual() {
+  // Manual save with feedback
+  const hasPairs = Object.values(state.pairs).some(v => v);
+  if (!hasPairs) { alert('No pairings to save. Set up pairs first.'); return; }
+  const snap = saveHistorySnapshot('manual');
+  alert(`Snapshot saved for ${snap.dayOfWeek}, ${snap.date}\n${snap.pairs.length} pair${snap.pairs.length!==1?'s':''}, ${snap.alone.length} alone`);
+}
+
+function deleteHistorySnapshot(dateKey) {
+  if (!confirm('Delete the saved pairings for ' + dateKey + '? This cannot be undone.')) return;
+  delete historyData[dateKey];
+  db.ref(HISTORY_DB_PATH + '/' + dateKey).remove().catch(e => {
+    console.error('History delete failed:', e);
+  });
+  renderHistory();
+}
+
+function populateHistoryPersonFilter() {
+  const sel = document.getElementById('history-person-filter');
+  if (!sel) return;
+  const cur = sel.value;
+  // Collect all unique person names that appear in history
+  const names = new Set();
+  Object.values(historyData).forEach(snap => {
+    (snap.pairs || []).forEach(p => { names.add(p.aName); names.add(p.bName); });
+    (snap.alone || []).forEach(a => { names.add(a.personName); });
+  });
+  // Also include current people so filters work for never-paired employees
+  state.people.forEach(p => names.add(p.name));
+  const sorted = [...names].filter(Boolean).sort((a, b) => a.localeCompare(b));
+  sel.innerHTML = '<option value="">Everyone</option>' +
+    sorted.map(n => `<option value="${esc(n)}" ${cur === n ? 'selected' : ''}>${esc(n)}</option>`).join('');
+}
+
+function getFilteredHistory() {
+  const range = document.getElementById('history-range-filter')?.value || '30';
+  const dow   = document.getElementById('history-dow-filter')?.value || '';
+  const pname = document.getElementById('history-person-filter')?.value || '';
+  const sort  = document.getElementById('history-sort')?.value || 'desc';
+
+  let list = Object.values(historyData);
+  if (range !== 'all') {
+    const days = parseInt(range, 10);
+    const cutoff = Date.now() - days * 86400000;
+    list = list.filter(s => {
+      // Use savedAt if available, else parse date
+      const t = s.savedAt || (() => {
+        const [y, m, d] = (s.date || '').split('-').map(Number);
+        return new Date(y, m - 1, d).getTime();
+      })();
+      return t >= cutoff;
+    });
+  }
+  if (dow) list = list.filter(s => s.dayOfWeek === dow);
+  if (pname) {
+    list = list.filter(s =>
+      (s.pairs || []).some(p => p.aName === pname || p.bName === pname) ||
+      (s.alone || []).some(a => a.personName === pname)
+    );
+  }
+  list.sort((a, b) => {
+    const da = a.date || '', db_ = b.date || '';
+    return sort === 'asc' ? da.localeCompare(db_) : db_.localeCompare(da);
+  });
+  return { list, filterPerson: pname };
+}
+
+function renderHistory() {
+  const container = document.getElementById('history-container');
+  const empty     = document.getElementById('history-empty');
+  const count     = document.getElementById('history-count');
+  if (!container) return;
+
+  populateHistoryPersonFilter();
+  const { list, filterPerson } = getFilteredHistory();
+
+  if (count) count.textContent = `${list.length} snapshot${list.length !== 1 ? 's' : ''}`;
+
+  if (!list.length) {
+    empty.classList.remove('hidden');
+    container.innerHTML = '';
+    return;
+  }
+  empty.classList.add('hidden');
+
+  // Highlight helper for the filtered person
+  const hl = (name) => filterPerson && name === filterPerson
+    ? `<strong style="background:#fef3c7;padding:0 0.2rem;border-radius:3px;">${esc(name)}</strong>`
+    : esc(name);
+
+  container.innerHTML = list.map(snap => {
+    const pairsHtml = (snap.pairs || []).map((p, i) => {
+      const truck = p.truckA || p.truckB || '';
+      const route = p.routeA || p.routeB || '';
+      const note  = p.noteA || p.noteB || '';
+      const sameTruck = !p.truckB || p.truckA === p.truckB;
+      const sameRoute = !p.routeB || p.routeA === p.routeB;
+      const sameNote  = !p.noteB || p.noteA === p.noteB;
+      let detailParts = [];
+      if (sameTruck && truck) detailParts.push(`🚛 ${esc(truck)}`);
+      if (sameRoute && route) detailParts.push(`🛣 ${esc(route)}`);
+      if (sameNote && note) detailParts.push(esc(note));
+      const detailLine = detailParts.length ? `<div style="font-size:0.78rem;color:var(--muted);margin-left:1.5rem;">${detailParts.join(' · ')}</div>` : '';
+      // If A and B have different truck/route/note, show per-person
+      let perPersonLines = '';
+      if (!sameTruck || !sameRoute || !sameNote) {
+        const aBits = [];
+        if (p.truckA) aBits.push(`🚛 ${esc(p.truckA)}`);
+        if (p.routeA) aBits.push(`🛣 ${esc(p.routeA)}`);
+        if (p.noteA) aBits.push(esc(p.noteA));
+        const bBits = [];
+        if (p.truckB) bBits.push(`🚛 ${esc(p.truckB)}`);
+        if (p.routeB) bBits.push(`🛣 ${esc(p.routeB)}`);
+        if (p.noteB) bBits.push(esc(p.noteB));
+        if (aBits.length) perPersonLines += `<div style="font-size:0.78rem;color:var(--muted);margin-left:1.5rem;">${esc(p.aName)}: ${aBits.join(' · ')}</div>`;
+        if (bBits.length) perPersonLines += `<div style="font-size:0.78rem;color:var(--muted);margin-left:1.5rem;">${esc(p.bName)}: ${bBits.join(' · ')}</div>`;
+      }
+      return `
+        <div style="padding:0.4rem 0;border-bottom:1px solid #f1f5f9;">
+          <div style="font-size:0.9rem;">
+            <span style="color:#64748b;">${i+1}.</span> ${hl(p.aName)} ↔ ${hl(p.bName)}
+          </div>
+          ${detailLine}${perPersonLines}
+        </div>`;
+    }).join('');
+
+    const aloneHtml = (snap.alone || []).length ? `
+      <div style="margin-top:0.5rem;padding-top:0.5rem;border-top:1px dashed #e2e8f0;">
+        <div style="font-size:0.78rem;color:#0891b2;font-weight:600;margin-bottom:0.25rem;">🧍 Working Alone</div>
+        ${snap.alone.map(a => {
+          const bits = [];
+          if (a.truck) bits.push(`🚛 ${esc(a.truck)}`);
+          if (a.route) bits.push(`🛣 ${esc(a.route)}`);
+          if (a.note) bits.push(esc(a.note));
+          const detail = bits.length ? `<span style="color:var(--muted);font-size:0.78rem;"> — ${bits.join(' · ')}</span>` : '';
+          return `<div style="font-size:0.85rem;padding:0.15rem 0;">${hl(a.personName)}${detail}</div>`;
+        }).join('')}
+      </div>` : '';
+
+    const sourceLabel = snap.source === 'auto-send' ? '📤 Auto-saved after send'
+                      : snap.source === 'manual'    ? '📌 Manually saved'
+                      : '';
+
+    return `
+      <div class="card" style="margin-bottom:0.6rem;padding:0.75rem;">
+        <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:0.5rem;margin-bottom:0.4rem;">
+          <div>
+            <strong style="font-size:1rem;">${esc(snap.dayOfWeek)}, ${esc(snap.date)}</strong>
+            <span style="font-size:0.78rem;color:var(--muted);margin-left:0.5rem;">
+              ${(snap.pairs||[]).length} pair${(snap.pairs||[]).length!==1?'s':''}${(snap.alone||[]).length ? ` · ${(snap.alone||[]).length} alone` : ''}
+              ${snap.dispatcher ? ` · Dispatcher: ${esc(snap.dispatcher)}` : ''}
+            </span>
+          </div>
+          <button class="btn btn-sm btn-danger" onclick="deleteHistorySnapshot('${esc(snap.date)}')" title="Delete this snapshot">✕</button>
+        </div>
+        ${sourceLabel ? `<div style="font-size:0.72rem;color:var(--muted);margin-bottom:0.4rem;">${sourceLabel}</div>` : ''}
+        ${pairsHtml}
+        ${aloneHtml}
+      </div>`;
+  }).join('');
+}
+
+function exportHistoryCSV() {
+  const { list } = getFilteredHistory();
+  if (!list.length) { alert('No history to export with current filters.'); return; }
+  const rows = [['Date','Day','Type','Person A','Person B','Truck','Route','Note','Dispatcher']];
+  list.forEach(snap => {
+    (snap.pairs || []).forEach(p => {
+      const truck = p.truckA === p.truckB ? p.truckA : `${p.aName}: ${p.truckA || ''} | ${p.bName}: ${p.truckB || ''}`;
+      const route = p.routeA === p.routeB ? p.routeA : `${p.aName}: ${p.routeA || ''} | ${p.bName}: ${p.routeB || ''}`;
+      const note  = p.noteA  === p.noteB  ? p.noteA  : `${p.aName}: ${p.noteA  || ''} | ${p.bName}: ${p.noteB  || ''}`;
+      rows.push([snap.date, snap.dayOfWeek, 'Pair', p.aName, p.bName, truck || '', route || '', note || '', snap.dispatcher || '']);
+    });
+    (snap.alone || []).forEach(a => {
+      rows.push([snap.date, snap.dayOfWeek, 'Alone', a.personName, '', a.truck || '', a.route || '', a.note || '', snap.dispatcher || '']);
+    });
+  });
+  const csv = rows.map(r => r.map(c => {
+    const v = String(c == null ? '' : c);
+    return /[",\n]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v;
+  }).join(',')).join('\r\n');
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
+  const url  = URL.createObjectURL(blob);
+  const a    = document.createElement('a');
+  a.href = url;
+  a.download = `partner-texter-history-${getTodayDateStr()}.csv`;
+  document.body.appendChild(a); a.click();
+  setTimeout(() => { document.body.removeChild(a); URL.revokeObjectURL(url); }, 100);
+}
+
 function setPair(personId, rawValue) {
   const oldPartner = state.pairs[personId];
   if (oldPartner && oldPartner !== ALONE) delete state.pairs[oldPartner];
@@ -1987,6 +2319,11 @@ async function sendAll() {
   document.getElementById('send-all-btn').disabled = false;
   document.getElementById('stop-btn').classList.add('hidden');
   isSending = false;
+
+  // Auto-save snapshot to history if anything was successfully sent
+  if (sent > 0) {
+    try { saveHistorySnapshot('auto-send'); } catch(e) { console.warn('History save failed:', e); }
+  }
 }
 
 function stopSending() {
@@ -2076,6 +2413,20 @@ function init() {
         _initialized = true;
         renderAll();
       }
+    }
+  );
+
+  // Listen for history changes — separate path so it doesn't slow main state sync
+  db.ref(HISTORY_DB_PATH).on('value',
+    snapshot => {
+      const data = snapshot.val();
+      historyData = data || {};
+      // Re-render history if that tab is currently visible
+      const histTab = document.getElementById('tab-history');
+      if (histTab && !histTab.classList.contains('hidden')) renderHistory();
+    },
+    error => {
+      console.error('History sync error:', error);
     }
   );
 }
