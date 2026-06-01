@@ -326,7 +326,6 @@
       <div class="action-bar">
         <button class="btn btn-primary" onclick="shufflePairs()">🔀 Random Shuffle</button>
         <button class="btn btn-outline" onclick="shufflePairsFiltered()" id="shuffle-route-btn" style="display:none;">🔀 Shuffle This Route</button>
-        <button class="btn btn-outline" onclick="saveHistorySnapshotManual()" title="Save current pairings to history">📜 Save Snapshot</button>
         <button class="btn btn-outline" onclick="resetPairings()" style="color:var(--danger);border-color:var(--danger);">🔄 Reset Pairings</button>
         <span style="margin-left:auto;font-size:0.85rem;color:var(--muted);" id="pairs-count"></span>
       </div>
@@ -2241,6 +2240,9 @@ async function sendAll() {
   document.getElementById('stop-btn').classList.remove('hidden');
   document.getElementById('send-progress-bar').classList.remove('hidden');
 
+  // Auto-save snapshot to history at the start so it's captured even if sending is interrupted
+  try { saveHistorySnapshot('auto-send'); } catch(e) { console.warn('History save failed:', e); }
+
   // FIX #3: Request a wake lock to keep the screen on during sending (prevents throttling)
   let wakeLock = null;
   try {
@@ -2319,11 +2321,6 @@ async function sendAll() {
   document.getElementById('send-all-btn').disabled = false;
   document.getElementById('stop-btn').classList.add('hidden');
   isSending = false;
-
-  // Auto-save snapshot to history if anything was successfully sent
-  if (sent > 0) {
-    try { saveHistorySnapshot('auto-send'); } catch(e) { console.warn('History save failed:', e); }
-  }
 }
 
 function stopSending() {
