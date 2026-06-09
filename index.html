@@ -334,7 +334,12 @@
         <select id="pairs-route-filter" onchange="onPairsRouteFilter()">
           <option value="">All Routes</option>
         </select>
+        <label style="display:flex;align-items:center;gap:0.3rem;font-size:0.85rem;margin-left:auto;cursor:pointer;" title="Bypass biweekly filtering — show all routes, even off-week ones">
+          <input type="checkbox" id="override-route-week" onchange="toggleOverrideRouteWeek(this.checked)" />
+          Show off-week routes
+        </label>
       </div>
+      <div id="pairs-week-label" style="font-size:0.8rem;color:var(--muted);margin-bottom:0.5rem;"></div>
       <div id="pairs-empty" class="empty-state hidden">
         <div class="empty-icon">🔗</div>
         <div>Add people on the People tab first.</div>
@@ -494,12 +499,18 @@
         Create routes to organize your team. Assign each person a route on the People tab, then filter by route when pairing or sending.
       </p>
       <div class="dispatcher-list" id="route-editor-list"></div>
-      <div class="form-row" style="margin:0;">
-        <div class="form-group">
+      <div class="form-row" style="margin:0;flex-wrap:wrap;">
+        <div class="form-group" style="flex:1;min-width:200px;">
           <input type="text" id="new-route-name" placeholder="Route name (e.g. Route 1, Morning, North)…" autocomplete="off" />
+        </div>
+        <div class="form-group" style="min-width:170px;">
+          <input type="date" id="new-route-anchor" title="Optional: anchor Monday for biweekly routes. Leave blank for an every-week route." />
         </div>
         <button class="btn btn-primary btn-sm" onclick="addRoute()" style="margin-bottom:0;">+ Add</button>
       </div>
+      <p style="font-size:0.78rem;color:var(--muted);margin-top:0.5rem;">
+        💡 For biweekly routes, set the <strong>anchor Monday</strong> — the route will run that week, then alternate every other week. Leave blank for every-week routes.
+      </p>
     </div>
 
     <!-- Trucks -->
@@ -774,6 +785,7 @@ function migrateState(s) {
   if (!s.pairData)         s.pairData         = {};
   if (!s.routes)           s.routes           = [];
   if (!s.trucks)           s.trucks           = [];
+  if (!s.routeAnchors)     s.routeAnchors     = {};
   if (Array.isArray(s.people)) s.people.forEach(p => { if (!('route' in p)) p.route = ''; });
   if (!s._v || s._v < 3) {
     if (s.template && !s.template.includes('{pairNote}')) {
@@ -801,6 +813,30 @@ function migrateState(s) {
     });
     s.pairData = migrated;
     s._v = 4;
+  }
+  // v5: seed biweekly routes with anchor dates
+  if (!s._v || s._v < 5) {
+    const BIWEEKLY_SEED = {
+      'Becker Rec N SL':              '2026-06-01',
+      'Becker Rec S SL':              '2026-06-08',
+      'Becker Rec Thurs SL':          '2026-06-01',
+      'Frazee Rec SL':                '2026-06-01',
+      'Jeff Nelson Mon 1 RL':         '2026-06-01',
+      'Jeff Nelson Mon 2 RL':         '2026-06-08',
+      'Jeff Nelson Wed 1 RL':         '2026-06-01',
+      'Jeff Nelson Wed 2 RL':         '2026-06-08',
+      'Joe Kantrud Mon 1 RL':         '2026-06-01',
+      'Joe Kantrud Mon 2 RL':         '2026-06-08',
+      'OTC SE Quad Battle Lake Rec SL': '2026-06-08',
+      'OTC SE Quad Henning SL':       '2026-06-01',
+      'Perham Rec N SL':              '2026-06-08',
+      'Perham Rec S SL':              '2026-06-01'
+    };
+    Object.keys(BIWEEKLY_SEED).forEach(name => {
+      if (!s.routes.includes(name)) s.routes.push(name);
+      if (!s.routeAnchors[name])    s.routeAnchors[name] = BIWEEKLY_SEED[name];
+    });
+    s._v = 5;
   }
   return s;
 }
@@ -869,6 +905,81 @@ function getTomorrowDateStr() {
   return tomorrow.toLocaleDateString('en-US', { weekday:'long', year:'numeric', month:'long', day:'numeric' });
 }
 
+// ISO format for storage / history keys
+function getTomorrowISO() {
+  const t = new Date();
+  t.setDate(t.getDate() + 1);
+  return t.getFullYear() + '-' + String(t.getMonth()+1).padStart(2,'0') + '-' + String(t.getDate()).padStart(2,'0');
+}
+
+// Parse "YYYY-MM-DD" → Date at local midnight (not UTC; avoids day-shift)
+function parseLocalDate(yyyymmdd) {
+  if (!yyyymmdd) return null;
+  const [y, m, d] = (yyyymmdd || '').split('-').map(Number);
+  if (!y || !m || !d) return null;
+  return new Date(y, m - 1, d);
+}
+
+// Format a Date or YYYY-MM-DD string as "Mon Jun 1, 2026"
+function formatMondayLabel(input) {
+  const d = (typeof input === 'string') ? parseLocalDate(input) : input;
+  if (!d) return '';
+  return d.toLocaleDateString('en-US', { weekday:'short', month:'short', day:'numeric', year:'numeric' });
+}
+
+// ═══════════════════════════════════════════════════════════════
+// BIWEEKLY ROUTE LOGIC
+// "Current week" is defined as the Mon–Sun week that TOMORROW falls in,
+// so on Sunday you see next Monday's week (which is what Kelly wants).
+// ═══════════════════════════════════════════════════════════════
+function getCurrentWeekMonday() {
+  const tomorrow = new Date();
+  tomorrow.setDate(tomorrow.getDate() + 1);
+  tomorrow.setHours(0, 0, 0, 0);
+  const dayOfWeek = tomorrow.getDay();         // 0=Sun, 1=Mon, ..., 6=Sat
+  const daysFromMonday = (dayOfWeek + 6) % 7;  // Mon=0, Tue=1, ..., Sun=6
+  const monday = new Date(tomorrow);
+  monday.setDate(tomorrow.getDate() - daysFromMonday);
+  return monday;
+}
+
+// A route is "active" this week if it has no anchor (every-week route),
+// or its anchor Monday and this week's Monday are an even number of weeks apart.
+function isRouteActive(routeName, weekMonday) {
+  const anchor = state.routeAnchors?.[routeName];
+  if (!anchor) return true;
+  const anchorDate = parseLocalDate(anchor);
+  if (!anchorDate) return true;
+  const wm = weekMonday || getCurrentWeekMonday();
+  const diffMs = wm.getTime() - anchorDate.getTime();
+  const diffWeeks = Math.round(diffMs / (7 * 86400000));
+  return Math.abs(diffWeeks) % 2 === 0;
+}
+
+function getActiveRouteNames() {
+  const monday = getCurrentWeekMonday();
+  return state.routes.filter(r => isRouteActive(r, monday));
+}
+
+// Count how many people currently have a given route assigned (in pairData)
+function countPeopleOnRoute(routeName, excludeId) {
+  if (!routeName) return 0;
+  const excl = excludeId == null ? null : String(excludeId);
+  let count = 0;
+  Object.keys(state.pairData || {}).forEach(pid => {
+    if (pid === excl) return;
+    if (state.pairData[pid]?.route === routeName) count++;
+  });
+  return count;
+}
+
+// Module-level override flag: when true, all routes are shown in pair-card dropdowns
+let overrideRouteWeek = false;
+function toggleOverrideRouteWeek(checked) {
+  overrideRouteWeek = !!checked;
+  renderPairs();
+}
+
 // ═══════════════════════════════════════════════════════════════
 // HELPER: sort people alphabetically by first name
 // ═══════════════════════════════════════════════════════════════
@@ -929,22 +1040,33 @@ function renderRouteEditor() {
     .sort((a, b) => a.name.localeCompare(b.name));
   list.innerHTML = sorted.map(({ name: r, index: i }) => {
     const peopleCount = state.people.filter(p => p.route === r).length;
+    const anchor = (state.routeAnchors || {})[r] || '';
+    const active = isRouteActive(r);
     if (editingRouteIndex === i) {
       return `
-        <div class="dispatcher-row" style="background:#fef3c7;">
+        <div class="dispatcher-row" style="background:#fef3c7;flex-wrap:wrap;">
           <span style="font-size:1rem;">🗺️</span>
-          <input type="text" id="route-edit-input-${i}" value="${esc(r)}" autofocus
+          <input type="text" id="route-edit-input-${i}" value="${esc(r)}" autofocus style="flex:1;min-width:140px;"
+                 onkeydown="if(event.key==='Enter')saveEditRoute(${i});if(event.key==='Escape')cancelEditRoute();" />
+          <label style="font-size:0.78rem;color:var(--muted);">Anchor Mon:</label>
+          <input type="date" id="route-edit-anchor-${i}" value="${esc(anchor)}" style="font-size:0.85rem;padding:0.3rem;"
                  onkeydown="if(event.key==='Enter')saveEditRoute(${i});if(event.key==='Escape')cancelEditRoute();" />
           <button class="btn btn-success btn-sm" onclick="saveEditRoute(${i})">✓ Save</button>
           <button class="btn btn-outline btn-sm" onclick="cancelEditRoute()">✕ Cancel</button>
         </div>`;
     }
+    const anchorLabel = anchor
+      ? `<span style="font-size:0.74rem;color:${active ? '#0e7490' : '#92400e'};background:${active ? '#cffafe' : '#fef3c7'};padding:0.1rem 0.4rem;border-radius:3px;" title="Runs every other week, starting ${formatMondayLabel(anchor)}">
+           biweekly · ${formatMondayLabel(anchor)}${!active ? ' (off this wk)' : ''}
+         </span>`
+      : `<span style="font-size:0.74rem;color:var(--muted);">every week</span>`;
     return `
       <div class="dispatcher-row">
         <span style="font-size:1rem;">🗺️</span>
         <span style="flex:1;font-weight:500;">${esc(r)}</span>
+        ${anchorLabel}
         <span style="font-size:0.78rem;color:var(--muted);">${peopleCount} people</span>
-        <button class="btn btn-outline btn-sm" onclick="startEditRoute(${i})" title="Edit route name">✎ Edit</button>
+        <button class="btn btn-outline btn-sm" onclick="startEditRoute(${i})" title="Edit route name and anchor date">✎ Edit</button>
         <button class="btn btn-danger btn-sm" onclick="removeRoute(${i})">✕</button>
       </div>`;
   }).join('');
@@ -966,35 +1088,81 @@ function cancelEditRoute() {
 }
 
 function saveEditRoute(index) {
-  const inp = document.getElementById('route-edit-input-' + index);
-  const newName = (inp?.value || '').trim();
-  const oldName = state.routes[index];
+  const inp        = document.getElementById('route-edit-input-' + index);
+  const anchorInp  = document.getElementById('route-edit-anchor-' + index);
+  const newName    = (inp?.value || '').trim();
+  const newAnchor  = (anchorInp?.value || '').trim();  // "" means every-week
+  const oldName    = state.routes[index];
+  const oldAnchor  = (state.routeAnchors || {})[oldName] || '';
+
   if (!newName) { alert('Route name cannot be empty.'); return; }
-  if (newName === oldName) { editingRouteIndex = null; renderRouteEditor(); return; }
-  if (state.routes.includes(newName)) { alert('A route named "' + newName + '" already exists.'); return; }
+  if (newName !== oldName && state.routes.includes(newName)) {
+    alert('A route named "' + newName + '" already exists.');
+    return;
+  }
+  const nameChanged   = newName   !== oldName;
+  const anchorChanged = newAnchor !== oldAnchor;
+  if (!nameChanged && !anchorChanged) {
+    editingRouteIndex = null;
+    renderRouteEditor();
+    return;
+  }
+
+  // Build confirmation message
   const peopleCount = state.people.filter(p => p.route === oldName).length;
-  const msg = `Rename route?\n\nFROM:  ${oldName}\nTO:        ${newName}` +
-              (peopleCount ? `\n\nThis will also update ${peopleCount} ${peopleCount === 1 ? 'person' : 'people'} assigned to this route.` : '');
-  if (!confirm(msg)) return;
-  state.routes[index] = newName;
-  state.people.forEach(p => { if (p.route === oldName) p.route = newName; });
+  const lines = ['Save route?', ''];
+  if (nameChanged)   lines.push(`NAME:        ${oldName}   →   ${newName}`);
+  if (anchorChanged) {
+    const oldA = oldAnchor ? formatMondayLabel(oldAnchor) : 'every week';
+    const newA = newAnchor ? formatMondayLabel(newAnchor) : 'every week';
+    lines.push(`SCHEDULE: ${oldA}   →   ${newA}`);
+  }
+  if (nameChanged && peopleCount) {
+    lines.push('');
+    lines.push(`Will also update ${peopleCount} ${peopleCount === 1 ? 'person' : 'people'} assigned to this route.`);
+  }
+  if (!confirm(lines.join('\n'))) return;
+
+  // Apply name change
+  if (nameChanged) {
+    state.routes[index] = newName;
+    state.people.forEach(p => { if (p.route === oldName) p.route = newName; });
+  }
+  // Apply anchor change — under the (possibly new) name
+  if (!state.routeAnchors) state.routeAnchors = {};
+  if (nameChanged) delete state.routeAnchors[oldName];
+  if (newAnchor) {
+    state.routeAnchors[newName] = newAnchor;
+  } else {
+    delete state.routeAnchors[newName];
+  }
+
   saveState();
   editingRouteIndex = null;
   renderRouteEditor();
   populateRouteDropdowns();
   renderPeopleTable();
+  renderPairs();
 }
 
 function addRoute() {
-  const input = document.getElementById('new-route-name');
-  const name  = input.value.trim();
+  const input      = document.getElementById('new-route-name');
+  const anchorInp  = document.getElementById('new-route-anchor');
+  const name       = input.value.trim();
+  const anchor     = (anchorInp?.value || '').trim();
   if (!name) { input.focus(); return; }
   if (state.routes.includes(name)) { alert('That route already exists.'); return; }
   state.routes.push(name);
+  if (anchor) {
+    if (!state.routeAnchors) state.routeAnchors = {};
+    state.routeAnchors[name] = anchor;
+  }
   input.value = '';
+  if (anchorInp) anchorInp.value = '';
   saveState();
   renderRouteEditor();
   populateRouteDropdowns();
+  renderPairs();
 }
 
 function removeRoute(index) {
@@ -1002,11 +1170,13 @@ function removeRoute(index) {
   const count = state.people.filter(p => p.route === name).length;
   if (!confirm(`Remove route "${name}"?${count ? `\n\n${count} people will become unassigned.` : ''}`)) return;
   state.routes.splice(index, 1);
+  if (state.routeAnchors) delete state.routeAnchors[name];
   state.people.forEach(p => { if (p.route === name) p.route = ''; });
   saveState();
   renderRouteEditor();
   populateRouteDropdowns();
   renderPeopleTable();
+  renderPairs();
 }
 
 function setPersonRoute(id, route) {
@@ -1669,6 +1839,16 @@ function setPairField(personId, field, value) {
 
 // Save a field and, if the person has a real partner, offer to apply the same to them
 function applyPairField(personId, partnerId, field, value) {
+  // Enforce max 2 people per route
+  if (field === 'route' && value) {
+    const count = countPeopleOnRoute(value, personId);
+    if (count >= 2) {
+      alert('Route "' + value + '" is already assigned to ' + count + ' people.\nMaximum is 2 people per route.');
+      renderPairs();  // revert dropdown to previous selection
+      return;
+    }
+  }
+
   getPairData(personId)[field] = value;
 
   const hasRealPartner = partnerId && partnerId !== ALONE && partnerId !== 'null';
@@ -1682,7 +1862,17 @@ function applyPairField(personId, partnerId, field, value) {
         ? `Apply this ${label} to ${partner.name} too?`
         : `Clear the ${label} for ${partner.name} too?`;
       if (confirm(prompt)) {
-        getPairData(pid)[field] = value;
+        // Re-check the limit before syncing the partner
+        if (field === 'route' && value) {
+          const partnerCount = countPeopleOnRoute(value, pid);
+          if (partnerCount >= 2) {
+            alert('Can\'t apply "' + value + '" to ' + partner.name + ' — that route would exceed the 2-person limit.');
+          } else {
+            getPairData(pid)[field] = value;
+          }
+        } else {
+          getPairData(pid)[field] = value;
+        }
       }
     }
   }
@@ -1725,7 +1915,7 @@ function getDayOfWeek(dateStr) {
 function buildCurrentSnapshot(source) {
   // Build a snapshot of CURRENT pairings (used for "for tomorrow" — the date stored is tomorrow's,
   // matching the email's "Tomorrow you will be…" semantics)
-  const dateStr   = getTomorrowDateStr();
+  const dateStr   = getTomorrowISO();
   const dayOfWeek = getDayOfWeek(dateStr);
   const dispatcher = state.activeDispatcher || '';
 
@@ -2003,6 +2193,17 @@ function renderPairs() {
   const count     = document.getElementById('pairs-count');
   const people    = getFilteredPeople('pairs-route-filter');
 
+  // Update the "showing routes for week of …" label and the override checkbox
+  const weekLabel = document.getElementById('pairs-week-label');
+  if (weekLabel) {
+    const m = getCurrentWeekMonday();
+    weekLabel.textContent = overrideRouteWeek
+      ? '⚠ Override on — showing all routes including off-week'
+      : 'Showing routes for week of ' + formatMondayLabel(m);
+  }
+  const overrideBox = document.getElementById('override-route-week');
+  if (overrideBox && overrideBox.checked !== overrideRouteWeek) overrideBox.checked = overrideRouteWeek;
+
   if (!state.people.length) {
     empty.classList.remove('hidden'); container.innerHTML = ''; count.textContent = ''; return;
   }
@@ -2045,9 +2246,21 @@ function renderPairs() {
       `<option value="${esc(t)}" ${pdData.truck === t ? 'selected' : ''}>${esc(t)}</option>`
     ).join('');
 
-    const routeOpts = [...(state.routes || [])].sort((a, b) => a.localeCompare(b)).map(r =>
-      `<option value="${esc(r)}" ${pdData.route === r ? 'selected' : ''}>${esc(r)}</option>`
-    ).join('');
+    // Filter route choices to "this week's" routes by default.
+    // When the user has toggled the override on, all routes are shown but off-week ones are marked.
+    // Also: if a person already has an off-week route assigned, include it so it doesn't visually disappear.
+    const activeRouteSet = new Set(getActiveRouteNames());
+    let routeList;
+    if (overrideRouteWeek) {
+      routeList = [...(state.routes || [])];
+    } else {
+      routeList = (state.routes || []).filter(r => activeRouteSet.has(r) || r === pdData.route);
+    }
+    const routeOpts = [...routeList].sort((a, b) => a.localeCompare(b)).map(r => {
+      const offWeek = !activeRouteSet.has(r);
+      const label = esc(r) + (offWeek ? ' (off-week)' : '');
+      return `<option value="${esc(r)}" ${pdData.route === r ? 'selected' : ''}>${label}</option>`;
+    }).join('');
 
     html += `
       <div class="pair-card ${cardClass}" style="flex-direction:column;align-items:stretch;gap:0.5rem;">
