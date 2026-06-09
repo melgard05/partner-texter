@@ -263,6 +263,7 @@
     <button class="tab-btn" onclick="switchTab('pairs', this)">🔗 Pairs</button>
     <button class="tab-btn" onclick="switchTab('template', this)">✉️ Template</button>
     <button class="tab-btn" onclick="switchTab('send', this)">🚀 Send</button>
+    <button class="tab-btn" onclick="switchTab('broadcast', this)">📣 Broadcast</button>
     <button class="tab-btn" onclick="switchTab('history', this)">📜 History</button>
     <button class="tab-btn" onclick="switchTab('settings', this)">⚙️ Settings</button>
   </div>
@@ -410,6 +411,54 @@
         <button class="btn btn-outline" onclick="emailPairings()" style="color:#0369a1;border-color:#7dd3fc;">📧 Email Pairings</button>
         <span id="send-status" style="font-size:0.85rem;color:var(--muted);"></span>
       </div>
+    </div>
+  </div>
+
+  <!-- ══════════════ BROADCAST ══════════════ -->
+  <div id="tab-broadcast" class="hidden">
+    <div class="card">
+      <div class="card-title">📣 Company Broadcast</div>
+      <p style="font-size:0.85rem;color:var(--muted);margin-bottom:0.75rem;">
+        Send a one-off message to selected employees — for yard closures, weather alerts, schedule changes, or company news.
+        Use <code>{name}</code> in your message to insert each person's first name.
+      </p>
+
+      <!-- Recipient picker -->
+      <div style="margin-bottom:0.75rem;">
+        <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:0.5rem;margin-bottom:0.4rem;">
+          <strong style="font-size:0.95rem;">Recipients <span id="broadcast-count" style="color:var(--muted);font-weight:normal;">(0 of 0 selected)</span></strong>
+          <div style="display:flex;gap:0.4rem;">
+            <button class="btn btn-outline btn-sm" onclick="selectAllBroadcast()">☑ Select All</button>
+            <button class="btn btn-outline btn-sm" onclick="clearAllBroadcast()">☐ Clear All</button>
+          </div>
+        </div>
+        <div id="broadcast-recipients"
+             style="border:1px solid #e2e8f0;border-radius:6px;padding:0.4rem;max-height:280px;overflow-y:auto;background:#fafbfc;">
+        </div>
+      </div>
+
+      <!-- Message -->
+      <div style="margin-bottom:0.5rem;">
+        <label style="font-size:0.85rem;font-weight:600;display:block;margin-bottom:0.25rem;">Message</label>
+        <textarea id="broadcast-message" rows="5" placeholder="Type your message here. Use {name} to personalize, e.g. 'Hi {name}, the yard will be closed Monday for maintenance.'"
+                  oninput="updateBroadcastCharCount()"
+                  style="width:100%;font-size:0.95rem;padding:0.5rem;border:1px solid #cbd5e1;border-radius:6px;resize:vertical;"></textarea>
+        <div style="display:flex;justify-content:space-between;font-size:0.78rem;color:var(--muted);margin-top:0.2rem;">
+          <span>💡 Long messages may be split into multiple SMS by the carrier.</span>
+          <span id="broadcast-char-count">0 chars</span>
+        </div>
+      </div>
+
+      <!-- Send -->
+      <div style="display:flex;gap:0.5rem;align-items:center;flex-wrap:wrap;margin-top:0.75rem;">
+        <button class="btn btn-success" id="broadcast-send-btn" onclick="sendBroadcast()">🚀 Send Broadcast</button>
+        <button class="btn btn-danger hidden" id="broadcast-stop-btn" onclick="stopBroadcast()">⏹ Stop</button>
+        <span id="broadcast-status" style="font-size:0.85rem;color:var(--muted);"></span>
+      </div>
+      <div id="broadcast-progress-bar" class="hidden" style="margin-top:0.5rem;background:#e2e8f0;height:8px;border-radius:4px;overflow:hidden;">
+        <div id="broadcast-progress-fill" style="background:var(--success);height:100%;width:0%;transition:width 0.3s;"></div>
+      </div>
+      <div id="broadcast-result-list" style="margin-top:0.5rem;font-size:0.85rem;"></div>
     </div>
   </div>
 
@@ -880,6 +929,7 @@ function switchTab(tab, btn) {
   if (tab === 'pairs')    { populateRouteFilter('pairs-route-filter'); renderPairs(); }
   if (tab === 'template') { document.getElementById('template-input').value = state.template; updateTemplatePreview(); }
   if (tab === 'send')     { populateRouteFilter('send-route-filter'); renderSend(); }
+  if (tab === 'broadcast'){ renderBroadcast(); }
   if (tab === 'history')  { populateHistoryPersonFilter(); renderHistory(); }
   if (tab === 'settings') { loadSettingsUI(); renderDispatcherEditor(); renderEmailRecipientList(); renderRouteEditor(); renderTruckEditor(); }
 }
@@ -2167,6 +2217,187 @@ function exportHistoryCSV() {
   a.download = `partner-texter-history-${getTodayDateStr()}.csv`;
   document.body.appendChild(a); a.click();
   setTimeout(() => { document.body.removeChild(a); URL.revokeObjectURL(url); }, 100);
+}
+
+// ═══════════════════════════════════════════════════════════════
+// BROADCAST (company-wide message)
+// ═══════════════════════════════════════════════════════════════
+let broadcastSelected = new Set();   // person IDs currently checked (in-memory, per session)
+let isBroadcasting    = false;
+let broadcastStopFlag = false;
+
+function renderBroadcast() {
+  const container = document.getElementById('broadcast-recipients');
+  if (!container) return;
+
+  const people = getSortedPeople(state.people);
+  if (!people.length) {
+    container.innerHTML = '<div style="padding:1rem;color:var(--muted);font-size:0.85rem;text-align:center;">No people yet — add some on the People tab first.</div>';
+    updateBroadcastCount();
+    return;
+  }
+
+  // Prune any selected IDs that no longer exist (e.g. someone was deleted)
+  const validIds = new Set(people.map(p => p.id));
+  [...broadcastSelected].forEach(id => { if (!validIds.has(id)) broadcastSelected.delete(id); });
+
+  container.innerHTML = people.map(p => {
+    const checked = broadcastSelected.has(p.id) ? 'checked' : '';
+    return `
+      <label style="display:flex;align-items:center;gap:0.5rem;padding:0.35rem 0.5rem;border-radius:4px;cursor:pointer;${broadcastSelected.has(p.id) ? 'background:#dcfce7;' : ''}"
+             onmouseover="if(!this.querySelector('input').checked)this.style.background='#f1f5f9';"
+             onmouseout="this.style.background=this.querySelector('input').checked?'#dcfce7':'transparent';">
+        <input type="checkbox" ${checked} onchange="toggleBroadcastRecipient(${p.id})" style="cursor:pointer;" />
+        <span style="font-weight:500;flex:1;">${esc(p.name)}</span>
+        <span style="font-family:monospace;font-size:0.78rem;color:var(--muted);">${esc(p.phone)}</span>
+      </label>`;
+  }).join('');
+  updateBroadcastCount();
+  updateBroadcastCharCount();
+}
+
+function updateBroadcastCount() {
+  const el = document.getElementById('broadcast-count');
+  if (!el) return;
+  const total = state.people.length;
+  const selected = broadcastSelected.size;
+  el.textContent = `(${selected} of ${total} selected)`;
+}
+
+function updateBroadcastCharCount() {
+  const ta = document.getElementById('broadcast-message');
+  const el = document.getElementById('broadcast-char-count');
+  if (!ta || !el) return;
+  const len = ta.value.length;
+  el.textContent = len + ' chars';
+}
+
+function toggleBroadcastRecipient(id) {
+  if (broadcastSelected.has(id)) broadcastSelected.delete(id);
+  else broadcastSelected.add(id);
+  renderBroadcast();
+}
+
+function selectAllBroadcast() {
+  state.people.forEach(p => broadcastSelected.add(p.id));
+  renderBroadcast();
+}
+
+function clearAllBroadcast() {
+  broadcastSelected.clear();
+  renderBroadcast();
+}
+
+async function sendBroadcast() {
+  if (isBroadcasting) return;
+
+  const ta = document.getElementById('broadcast-message');
+  const message = (ta?.value || '').trim();
+  if (!message) { alert('Please type a message first.'); ta?.focus(); return; }
+
+  if (!broadcastSelected.size) { alert('Select at least one recipient.'); return; }
+
+  // Verify settings just like sendAll does
+  const mode = state.settings.mode;
+  if (mode === 'zapier' && !state.settings.zapierUrl) {
+    alert('Configure a Zapier webhook URL in Settings first.'); return;
+  }
+  if (mode === 'simpletexting' && (!state.settings.stApiKey || !state.settings.stFrom)) {
+    alert('Configure Simple Texting settings first.'); return;
+  }
+
+  // Build recipient list (in same alphabetical order shown)
+  const recipients = getSortedPeople(state.people).filter(p => broadcastSelected.has(p.id));
+
+  // Preview the first message so Kelly can see what it'll actually say
+  const firstName  = (recipients[0].name || '').split(' ')[0];
+  const sampleText = message.replace(/\{name\}/gi, firstName);
+  if (!confirm(`Send to ${recipients.length} ${recipients.length === 1 ? 'person' : 'people'}?\n\nPreview (to ${recipients[0].name}):\n\n${sampleText}`)) return;
+
+  isBroadcasting   = true;
+  broadcastStopFlag = false;
+  document.getElementById('broadcast-send-btn').disabled = true;
+  document.getElementById('broadcast-stop-btn').classList.remove('hidden');
+  document.getElementById('broadcast-progress-bar').classList.remove('hidden');
+
+  const resultList = document.getElementById('broadcast-result-list');
+  resultList.innerHTML = recipients.map((p, i) =>
+    `<div id="bc-row-${i}" style="display:flex;justify-content:space-between;padding:0.2rem 0;border-bottom:1px solid #f1f5f9;">
+       <span>${esc(p.name)} <span style="font-family:monospace;color:var(--muted);font-size:0.8rem;">${esc(p.phone)}</span></span>
+       <span id="bc-status-${i}" style="font-size:0.85rem;color:var(--muted);">Queued</span>
+     </div>`).join('');
+
+  // Wake lock to keep the screen on during sending
+  let wakeLock = null;
+  try {
+    if ('wakeLock' in navigator) wakeLock = await navigator.wakeLock.request('screen');
+  } catch(e) { console.warn('Wake lock unavailable:', e); }
+
+  let sent = 0, errors = 0;
+  for (let i = 0; i < recipients.length; i++) {
+    if (broadcastStopFlag) break;
+    const p = recipients[i];
+
+    // Pause for incoming call / page hidden
+    if (document.hidden) {
+      const st = document.getElementById(`bc-status-${i}`);
+      if (st) { st.textContent = '⏸ Waiting…'; st.style.color = '#92400e'; }
+      document.getElementById('broadcast-status').textContent = `Paused — waiting for screen… (${i+1} of ${recipients.length})`;
+      await waitForVisible();
+      await sleep(1000);
+    }
+
+    const personalName = (p.name || '').split(' ')[0];
+    const text         = message.replace(/\{name\}/gi, personalName);
+    const st           = document.getElementById(`bc-status-${i}`);
+
+    document.getElementById('broadcast-progress-fill').style.width = Math.round((i / recipients.length) * 100) + '%';
+    document.getElementById('broadcast-status').textContent = `Sending ${i+1} of ${recipients.length}…`;
+    if (st) { st.textContent = 'Sending…'; st.style.color = '#1e40af'; }
+
+    // Retry up to 3 attempts with backoff (matches sendAll behavior)
+    let success = false, lastErr = null;
+    for (let attempt = 1; attempt <= 3 && !success && !broadcastStopFlag; attempt++) {
+      try {
+        if (attempt > 1) {
+          if (st) { st.textContent = `Retry ${attempt-1}…`; st.style.color = '#92400e'; }
+          if (document.hidden) await waitForVisible();
+          await sleep(1500 * attempt);
+        }
+        await sendMessage(p.phone, text, p.name);
+        success = true;
+      } catch(err) {
+        lastErr = err;
+        console.warn(`Broadcast attempt ${attempt} failed for ${p.name}:`, err);
+      }
+    }
+
+    if (success) {
+      if (st) { st.textContent = 'Sent ✓'; st.style.color = '#15803d'; }
+      sent++;
+    } else {
+      if (st) { st.textContent = 'Error ✕'; st.style.color = '#b91c1c'; }
+      errors++;
+      console.error('All broadcast attempts failed for', p.name, lastErr);
+    }
+
+    if (i < recipients.length - 1 && !broadcastStopFlag) await sleep(state.settings.sendDelay || 1200);
+  }
+
+  if (wakeLock) { try { await wakeLock.release(); } catch(e) {} }
+
+  document.getElementById('broadcast-progress-fill').style.width = '100%';
+  document.getElementById('broadcast-status').textContent = broadcastStopFlag
+    ? `Stopped. ${sent} sent${errors ? `, ${errors} errors` : ''}.`
+    : `Done! ${sent} sent${errors ? `, ${errors} errors` : ' — all successful ✓'}.`;
+  document.getElementById('broadcast-send-btn').disabled = false;
+  document.getElementById('broadcast-stop-btn').classList.add('hidden');
+  isBroadcasting = false;
+}
+
+function stopBroadcast() {
+  broadcastStopFlag = true;
+  document.getElementById('broadcast-status').textContent = 'Stopping after current message…';
 }
 
 function setPair(personId, rawValue) {
