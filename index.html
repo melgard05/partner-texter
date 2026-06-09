@@ -745,7 +745,8 @@ let _pendingEmail = null;
 // PERSISTENCE
 // ═══════════════════════════════════════════════════════════════
 function saveState() {
-  db.ref(DB_PATH).set({ state, nextId })
+  // Use .update() instead of .set() so the history sub-key isn't wiped on every save
+  db.ref(DB_PATH).update({ state, nextId })
     .catch(err => console.error('Firebase save error:', err));
 }
 
@@ -898,19 +899,19 @@ function populateRouteFilter(elId) {
   if (!sel) return;
   const cur = sel.value;
   sel.innerHTML = '<option value="">All Routes</option>'
-    + state.routes.map(r => `<option value="${esc(r)}" ${cur === r ? 'selected' : ''}>${esc(r)}</option>`).join('');
+    + [...state.routes].sort((a,b) => a.localeCompare(b)).map(r => `<option value="${esc(r)}" ${cur === r ? 'selected' : ''}>${esc(r)}</option>`).join('');
 }
 
 function populateRouteSelect(elId, current = '') {
   const sel = document.getElementById(elId);
   if (!sel) return;
   sel.innerHTML = '<option value="">— No Route —</option>'
-    + state.routes.map(r => `<option value="${esc(r)}" ${current === r ? 'selected' : ''}>${esc(r)}</option>`).join('');
+    + [...state.routes].sort((a,b) => a.localeCompare(b)).map(r => `<option value="${esc(r)}" ${current === r ? 'selected' : ''}>${esc(r)}</option>`).join('');
 }
 
 function rebuildRouteOptions(sel, current, includeBlank = true) {
   sel.innerHTML = (includeBlank ? '<option value="">— No Route —</option>' : '')
-    + state.routes.map(r => `<option value="${esc(r)}" ${current === r ? 'selected' : ''}>${esc(r)}</option>`).join('');
+    + [...state.routes].sort((a,b) => a.localeCompare(b)).map(r => `<option value="${esc(r)}" ${current === r ? 'selected' : ''}>${esc(r)}</option>`).join('');
 }
 
 function renderRouteEditor() {
@@ -920,7 +921,11 @@ function renderRouteEditor() {
     list.innerHTML = '<div style="font-size:0.85rem;color:var(--muted);margin-bottom:0.5rem;">No routes yet — add one below.</div>';
     return;
   }
-  list.innerHTML = state.routes.map((r, i) => `
+  // Display alphabetically (but track original index for rename/remove)
+  const sorted = state.routes
+    .map((r, i) => ({ name: r, index: i }))
+    .sort((a, b) => a.name.localeCompare(b.name));
+  list.innerHTML = sorted.map(({ name: r, index: i }) => `
     <div class="dispatcher-row">
       <span style="font-size:1rem;">🗺️</span>
       <input type="text" value="${esc(r)}" onchange="renameRoute(${i}, this.value)" />
@@ -990,7 +995,11 @@ function renderTruckEditor() {
     list.innerHTML = '<div style="font-size:0.85rem;color:var(--muted);margin-bottom:0.5rem;">No trucks yet — add one below.</div>';
     return;
   }
-  list.innerHTML = state.trucks.map((t, i) => `
+  // Display alphabetically (but track original index for rename/remove)
+  const sorted = state.trucks
+    .map((t, i) => ({ name: t, index: i }))
+    .sort((a, b) => a.name.localeCompare(b.name));
+  list.innerHTML = sorted.map(({ name: t, index: i }) => `
     <div class="dispatcher-row">
       <span style="font-size:1rem;">🚛</span>
       <input type="text" value="${esc(t)}" onchange="renameTruck(${i}, this.value)" />
@@ -1385,8 +1394,14 @@ function renderPeopleTable() {
     const tr = document.createElement('tr');
 
     tr.innerHTML = `
-      <td><strong>${esc(p.name)}</strong></td>
-      <td style="font-family:monospace;font-size:0.83rem;">${esc(p.phone)}</td>
+      <td><input type="text" value="${esc(p.name)}" onchange="renamePerson(${p.id}, this.value)"
+                 style="width:100%;font-weight:600;border:1px solid transparent;background:transparent;padding:0.25rem;border-radius:4px;"
+                 onfocus="this.style.background='#fff';this.style.borderColor='#cbd5e1';"
+                 onblur="this.style.background='transparent';this.style.borderColor='transparent';" /></td>
+      <td><input type="text" value="${esc(p.phone)}" onchange="updatePersonPhone(${p.id}, this.value)"
+                 style="width:100%;font-family:monospace;font-size:0.83rem;border:1px solid transparent;background:transparent;padding:0.25rem;border-radius:4px;"
+                 onfocus="this.style.background='#fff';this.style.borderColor='#cbd5e1';"
+                 onblur="this.style.background='transparent';this.style.borderColor='transparent';" /></td>
       <td>${partnerId === ALONE
         ? `<span class="tag" style="background:#cffafe;color:#0e7490;">🧍 Alone</span>`
         : partner
@@ -1397,6 +1412,31 @@ function renderPeopleTable() {
     `;
     tbody.appendChild(tr);
   });
+}
+
+function renamePerson(id, newName) {
+  newName = (newName || '').trim();
+  if (!newName) { renderPeopleTable(); return; }
+  const p = state.people.find(x => x.id === id);
+  if (!p) return;
+  if (p.name === newName) return;
+  p.name = newName;
+  saveState();
+  renderPeopleTable();
+  renderPairs();
+}
+
+function updatePersonPhone(id, newPhone) {
+  newPhone = (newPhone || '').trim();
+  if (!newPhone) { renderPeopleTable(); return; }
+  const p = state.people.find(x => x.id === id);
+  if (!p) return;
+  const formatted = formatPhone(newPhone);
+  if (p.phone === formatted) return;
+  p.phone = formatted;
+  saveState();
+  renderPeopleTable();
+  renderPairs();
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -1550,7 +1590,9 @@ function resetPairings() {
 // ═══════════════════════════════════════════════════════════════
 // HISTORY (saved pairing snapshots)
 // ═══════════════════════════════════════════════════════════════
-const HISTORY_DB_PATH = 'partnerTexterHistory';
+// Stored UNDER the main DB_PATH (as partnerTexter/history/{date}) so it
+// inherits the same Firebase Security Rules — no separate rules needed.
+const HISTORY_DB_PATH = DB_PATH + '/history';
 let historyData = {}; // keyed by date "YYYY-MM-DD"
 
 function getTodayDateStr() {
@@ -1622,9 +1664,13 @@ function saveHistorySnapshot(source) {
   const snap = buildCurrentSnapshot(source);
   // Key by date — latest save for that date wins
   historyData[snap.date] = snap;
-  db.ref(HISTORY_DB_PATH + '/' + snap.date).set(snap).catch(e => {
-    console.error('History save failed:', e);
-  });
+  console.log('Saving history snapshot:', snap.date, snap);
+  db.ref(HISTORY_DB_PATH + '/' + snap.date).set(snap)
+    .then(() => console.log('History snapshot saved successfully for', snap.date))
+    .catch(e => {
+      console.error('History save failed:', e);
+      alert('Could not save pairing history: ' + e.message + '\n\nIf this keeps happening, check Firebase rules.');
+    });
   return snap;
 }
 
@@ -1880,11 +1926,11 @@ function renderPairs() {
     // Partner argument for the sync prompt — ALONE/none means no partner to sync to
     const partnerArg = isAlone ? `'${ALONE}'` : (partnerId ? partnerId : 'null');
 
-    const truckOpts = (state.trucks || []).map(t =>
+    const truckOpts = [...(state.trucks || [])].sort((a, b) => a.localeCompare(b)).map(t =>
       `<option value="${esc(t)}" ${pdData.truck === t ? 'selected' : ''}>${esc(t)}</option>`
     ).join('');
 
-    const routeOpts = (state.routes || []).map(r =>
+    const routeOpts = [...(state.routes || [])].sort((a, b) => a.localeCompare(b)).map(r =>
       `<option value="${esc(r)}" ${pdData.route === r ? 'selected' : ''}>${esc(r)}</option>`
     ).join('');
 
