@@ -307,7 +307,7 @@
       <div id="people-table-wrapper" class="hidden" style="overflow-x:auto;-webkit-overflow-scrolling:touch;">
         <table id="people-table">
           <thead>
-            <tr><th>Name</th><th>Phone</th><th>Partner</th><th></th></tr>
+            <tr><th>Name</th><th>Phone</th><th>Partner</th><th>Actions</th></tr>
           </thead>
           <tbody id="people-tbody"></tbody>
         </table>
@@ -914,6 +914,8 @@ function rebuildRouteOptions(sel, current, includeBlank = true) {
     + [...state.routes].sort((a,b) => a.localeCompare(b)).map(r => `<option value="${esc(r)}" ${current === r ? 'selected' : ''}>${esc(r)}</option>`).join('');
 }
 
+let editingRouteIndex = null;
+
 function renderRouteEditor() {
   const list = document.getElementById('route-editor-list');
   if (!list) return;
@@ -925,14 +927,62 @@ function renderRouteEditor() {
   const sorted = state.routes
     .map((r, i) => ({ name: r, index: i }))
     .sort((a, b) => a.name.localeCompare(b.name));
-  list.innerHTML = sorted.map(({ name: r, index: i }) => `
-    <div class="dispatcher-row">
-      <span style="font-size:1rem;">🗺️</span>
-      <input type="text" value="${esc(r)}" onchange="renameRoute(${i}, this.value)" />
-      <span style="font-size:0.78rem;color:var(--muted);">${state.people.filter(p => p.route === r).length} people</span>
-      <button class="btn btn-danger btn-sm" onclick="removeRoute(${i})">✕</button>
-    </div>
-  `).join('');
+  list.innerHTML = sorted.map(({ name: r, index: i }) => {
+    const peopleCount = state.people.filter(p => p.route === r).length;
+    if (editingRouteIndex === i) {
+      return `
+        <div class="dispatcher-row" style="background:#fef3c7;">
+          <span style="font-size:1rem;">🗺️</span>
+          <input type="text" id="route-edit-input-${i}" value="${esc(r)}" autofocus
+                 onkeydown="if(event.key==='Enter')saveEditRoute(${i});if(event.key==='Escape')cancelEditRoute();" />
+          <button class="btn btn-success btn-sm" onclick="saveEditRoute(${i})">✓ Save</button>
+          <button class="btn btn-outline btn-sm" onclick="cancelEditRoute()">✕ Cancel</button>
+        </div>`;
+    }
+    return `
+      <div class="dispatcher-row">
+        <span style="font-size:1rem;">🗺️</span>
+        <span style="flex:1;font-weight:500;">${esc(r)}</span>
+        <span style="font-size:0.78rem;color:var(--muted);">${peopleCount} people</span>
+        <button class="btn btn-outline btn-sm" onclick="startEditRoute(${i})" title="Edit route name">✎ Edit</button>
+        <button class="btn btn-danger btn-sm" onclick="removeRoute(${i})">✕</button>
+      </div>`;
+  }).join('');
+  // Focus the input if we just entered edit mode
+  if (editingRouteIndex !== null) {
+    const inp = document.getElementById('route-edit-input-' + editingRouteIndex);
+    if (inp) { inp.focus(); inp.select(); }
+  }
+}
+
+function startEditRoute(index) {
+  editingRouteIndex = index;
+  renderRouteEditor();
+}
+
+function cancelEditRoute() {
+  editingRouteIndex = null;
+  renderRouteEditor();
+}
+
+function saveEditRoute(index) {
+  const inp = document.getElementById('route-edit-input-' + index);
+  const newName = (inp?.value || '').trim();
+  const oldName = state.routes[index];
+  if (!newName) { alert('Route name cannot be empty.'); return; }
+  if (newName === oldName) { editingRouteIndex = null; renderRouteEditor(); return; }
+  if (state.routes.includes(newName)) { alert('A route named "' + newName + '" already exists.'); return; }
+  const peopleCount = state.people.filter(p => p.route === oldName).length;
+  const msg = `Rename route?\n\nFROM:  ${oldName}\nTO:        ${newName}` +
+              (peopleCount ? `\n\nThis will also update ${peopleCount} ${peopleCount === 1 ? 'person' : 'people'} assigned to this route.` : '');
+  if (!confirm(msg)) return;
+  state.routes[index] = newName;
+  state.people.forEach(p => { if (p.route === oldName) p.route = newName; });
+  saveState();
+  editingRouteIndex = null;
+  renderRouteEditor();
+  populateRouteDropdowns();
+  renderPeopleTable();
 }
 
 function addRoute() {
@@ -945,18 +995,6 @@ function addRoute() {
   saveState();
   renderRouteEditor();
   populateRouteDropdowns();
-}
-
-function renameRoute(index, newName) {
-  newName = newName.trim();
-  if (!newName) { renderRouteEditor(); return; }
-  const old = state.routes[index];
-  state.routes[index] = newName;
-  state.people.forEach(p => { if (p.route === old) p.route = newName; });
-  saveState();
-  renderRouteEditor();
-  populateRouteDropdowns();
-  renderPeopleTable();
 }
 
 function removeRoute(index) {
@@ -988,6 +1026,8 @@ function onPairsRouteFilter() {
 // ═══════════════════════════════════════════════════════════════
 // TRUCKS
 // ═══════════════════════════════════════════════════════════════
+let editingTruckIndex = null;
+
 function renderTruckEditor() {
   const list = document.getElementById('truck-editor-list');
   if (!list) return;
@@ -999,13 +1039,53 @@ function renderTruckEditor() {
   const sorted = state.trucks
     .map((t, i) => ({ name: t, index: i }))
     .sort((a, b) => a.name.localeCompare(b.name));
-  list.innerHTML = sorted.map(({ name: t, index: i }) => `
-    <div class="dispatcher-row">
-      <span style="font-size:1rem;">🚛</span>
-      <input type="text" value="${esc(t)}" onchange="renameTruck(${i}, this.value)" />
-      <button class="btn btn-danger btn-sm" onclick="removeTruck(${i})">✕</button>
-    </div>
-  `).join('');
+  list.innerHTML = sorted.map(({ name: t, index: i }) => {
+    if (editingTruckIndex === i) {
+      return `
+        <div class="dispatcher-row" style="background:#fef3c7;">
+          <span style="font-size:1rem;">🚛</span>
+          <input type="text" id="truck-edit-input-${i}" value="${esc(t)}" autofocus
+                 onkeydown="if(event.key==='Enter')saveEditTruck(${i});if(event.key==='Escape')cancelEditTruck();" />
+          <button class="btn btn-success btn-sm" onclick="saveEditTruck(${i})">✓ Save</button>
+          <button class="btn btn-outline btn-sm" onclick="cancelEditTruck()">✕ Cancel</button>
+        </div>`;
+    }
+    return `
+      <div class="dispatcher-row">
+        <span style="font-size:1rem;">🚛</span>
+        <span style="flex:1;font-weight:500;">${esc(t)}</span>
+        <button class="btn btn-outline btn-sm" onclick="startEditTruck(${i})" title="Edit truck name">✎ Edit</button>
+        <button class="btn btn-danger btn-sm" onclick="removeTruck(${i})">✕</button>
+      </div>`;
+  }).join('');
+  if (editingTruckIndex !== null) {
+    const inp = document.getElementById('truck-edit-input-' + editingTruckIndex);
+    if (inp) { inp.focus(); inp.select(); }
+  }
+}
+
+function startEditTruck(index) {
+  editingTruckIndex = index;
+  renderTruckEditor();
+}
+
+function cancelEditTruck() {
+  editingTruckIndex = null;
+  renderTruckEditor();
+}
+
+function saveEditTruck(index) {
+  const inp = document.getElementById('truck-edit-input-' + index);
+  const newName = (inp?.value || '').trim();
+  const oldName = state.trucks[index];
+  if (!newName) { alert('Truck name cannot be empty.'); return; }
+  if (newName === oldName) { editingTruckIndex = null; renderTruckEditor(); return; }
+  if (state.trucks.includes(newName)) { alert('A truck named "' + newName + '" already exists.'); return; }
+  if (!confirm(`Rename truck?\n\nFROM:  ${oldName}\nTO:        ${newName}`)) return;
+  state.trucks[index] = newName;
+  saveState();
+  editingTruckIndex = null;
+  renderTruckEditor();
 }
 
 function addTruck() {
@@ -1015,14 +1095,6 @@ function addTruck() {
   if (state.trucks.includes(name)) { alert('That truck already exists.'); return; }
   state.trucks.push(name);
   input.value = '';
-  saveState();
-  renderTruckEditor();
-}
-
-function renameTruck(index, newName) {
-  newName = newName.trim();
-  if (!newName) { renderTruckEditor(); return; }
-  state.trucks[index] = newName;
   saveState();
   renderTruckEditor();
 }
@@ -1374,6 +1446,8 @@ function formatPhone(raw) {
   return s;
 }
 
+let editingPersonId = null;
+
 function renderPeopleTable() {
   // FIX #3: Sort people alphabetically by first name
   const people  = getSortedPeople(state.people);
@@ -1391,50 +1465,91 @@ function renderPeopleTable() {
   people.forEach(p => {
     const partnerId = state.pairs[p.id];
     const partner   = (partnerId && partnerId !== ALONE) ? state.people.find(x => x.id === partnerId) : null;
+    const partnerCell = partnerId === ALONE
+      ? `<span class="tag" style="background:#cffafe;color:#0e7490;">🧍 Alone</span>`
+      : partner
+        ? `<span class="tag tag-green">↔ ${esc(partner.name)}</span>`
+        : `<span class="tag tag-gray">Unassigned</span>`;
     const tr = document.createElement('tr');
 
-    tr.innerHTML = `
-      <td><input type="text" value="${esc(p.name)}" onchange="renamePerson(${p.id}, this.value)"
-                 style="width:100%;font-weight:600;border:1px solid transparent;background:transparent;padding:0.25rem;border-radius:4px;"
-                 onfocus="this.style.background='#fff';this.style.borderColor='#cbd5e1';"
-                 onblur="this.style.background='transparent';this.style.borderColor='transparent';" /></td>
-      <td><input type="text" value="${esc(p.phone)}" onchange="updatePersonPhone(${p.id}, this.value)"
-                 style="width:100%;font-family:monospace;font-size:0.83rem;border:1px solid transparent;background:transparent;padding:0.25rem;border-radius:4px;"
-                 onfocus="this.style.background='#fff';this.style.borderColor='#cbd5e1';"
-                 onblur="this.style.background='transparent';this.style.borderColor='transparent';" /></td>
-      <td>${partnerId === ALONE
-        ? `<span class="tag" style="background:#cffafe;color:#0e7490;">🧍 Alone</span>`
-        : partner
-          ? `<span class="tag tag-green">↔ ${esc(partner.name)}</span>`
-          : `<span class="tag tag-gray">Unassigned</span>`}
-      </td>
-      <td><button class="btn btn-danger btn-sm" onclick="removePerson(${p.id})">✕</button></td>
-    `;
+    if (editingPersonId === p.id) {
+      // EDIT MODE — name & phone become inputs, Save / Cancel buttons
+      tr.style.background = '#fef3c7';
+      tr.innerHTML = `
+        <td><input type="text" id="person-edit-name-${p.id}" value="${esc(p.name)}"
+                   style="width:100%;font-weight:600;padding:0.3rem 0.4rem;border:1px solid #cbd5e1;border-radius:4px;"
+                   onkeydown="if(event.key==='Enter')saveEditPerson(${p.id});if(event.key==='Escape')cancelEditPerson();" /></td>
+        <td><input type="text" id="person-edit-phone-${p.id}" value="${esc(p.phone)}"
+                   style="width:100%;font-family:monospace;font-size:0.83rem;padding:0.3rem 0.4rem;border:1px solid #cbd5e1;border-radius:4px;"
+                   onkeydown="if(event.key==='Enter')saveEditPerson(${p.id});if(event.key==='Escape')cancelEditPerson();" /></td>
+        <td>${partnerCell}</td>
+        <td style="white-space:nowrap;">
+          <button class="btn btn-success btn-sm" onclick="saveEditPerson(${p.id})">✓ Save</button>
+          <button class="btn btn-outline btn-sm" onclick="cancelEditPerson()">✕ Cancel</button>
+        </td>
+      `;
+    } else {
+      // READ-ONLY ROW — Edit button to enter edit mode
+      tr.innerHTML = `
+        <td><strong>${esc(p.name)}</strong></td>
+        <td style="font-family:monospace;font-size:0.83rem;">${esc(p.phone)}</td>
+        <td>${partnerCell}</td>
+        <td style="white-space:nowrap;">
+          <button class="btn btn-outline btn-sm" onclick="startEditPerson(${p.id})" title="Edit name & phone">✎ Edit</button>
+          <button class="btn btn-danger btn-sm" onclick="removePerson(${p.id})" title="Delete">✕</button>
+        </td>
+      `;
+    }
     tbody.appendChild(tr);
   });
+
+  // Focus the name input if we just entered edit mode
+  if (editingPersonId !== null) {
+    const inp = document.getElementById('person-edit-name-' + editingPersonId);
+    if (inp) { inp.focus(); inp.select(); }
+  }
 }
 
-function renamePerson(id, newName) {
-  newName = (newName || '').trim();
-  if (!newName) { renderPeopleTable(); return; }
-  const p = state.people.find(x => x.id === id);
-  if (!p) return;
-  if (p.name === newName) return;
-  p.name = newName;
-  saveState();
+function startEditPerson(id) {
+  editingPersonId = id;
   renderPeopleTable();
-  renderPairs();
 }
 
-function updatePersonPhone(id, newPhone) {
-  newPhone = (newPhone || '').trim();
-  if (!newPhone) { renderPeopleTable(); return; }
+function cancelEditPerson() {
+  editingPersonId = null;
+  renderPeopleTable();
+}
+
+function saveEditPerson(id) {
+  const nameInp  = document.getElementById('person-edit-name-' + id);
+  const phoneInp = document.getElementById('person-edit-phone-' + id);
+  const newName  = (nameInp?.value  || '').trim();
+  const newPhoneRaw = (phoneInp?.value || '').trim();
+  const newPhone = newPhoneRaw ? formatPhone(newPhoneRaw) : '';
+
   const p = state.people.find(x => x.id === id);
   if (!p) return;
-  const formatted = formatPhone(newPhone);
-  if (p.phone === formatted) return;
-  p.phone = formatted;
+  if (!newName)  { alert('Name cannot be empty.');  return; }
+  if (!newPhone) { alert('Phone cannot be empty.'); return; }
+
+  const nameChanged  = newName  !== p.name;
+  const phoneChanged = newPhone !== p.phone;
+  if (!nameChanged && !phoneChanged) {
+    editingPersonId = null;
+    renderPeopleTable();
+    return;
+  }
+
+  // Build the confirmation message showing exactly what's changing
+  const lines = ['Save changes?', ''];
+  if (nameChanged)  lines.push(`NAME:    ${p.name}   →   ${newName}`);
+  if (phoneChanged) lines.push(`PHONE:  ${p.phone}   →   ${newPhone}`);
+  if (!confirm(lines.join('\n'))) return;
+
+  p.name  = newName;
+  p.phone = newPhone;
   saveState();
+  editingPersonId = null;
   renderPeopleTable();
   renderPairs();
 }
