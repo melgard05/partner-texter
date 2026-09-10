@@ -2017,11 +2017,18 @@ function buildCurrentSnapshot(source) {
 
 function saveHistorySnapshot(source) {
   const snap = buildCurrentSnapshot(source);
-  // Key by date — latest save for that date wins
-  historyData[snap.date] = snap;
-  console.log('Saving history snapshot:', snap.date, snap);
-  db.ref(HISTORY_DB_PATH + '/' + snap.date).set(snap)
-    .then(() => console.log('History snapshot saved successfully for', snap.date))
+  // Unique key: date + time-of-day, so multiple saves on the same day each get their own entry.
+  // e.g. "2026-06-09_143025" for 2:30:25 PM on June 9. Sortable, readable in Firebase console.
+  const now = new Date();
+  const timeStr = String(now.getHours()).padStart(2,'0')
+                + String(now.getMinutes()).padStart(2,'0')
+                + String(now.getSeconds()).padStart(2,'0');
+  const key = snap.date + '_' + timeStr;
+  snap.key = key; // remember key inside the snap so delete/render know which node to touch
+  historyData[key] = snap;
+  console.log('Saving history snapshot:', key, snap);
+  db.ref(HISTORY_DB_PATH + '/' + key).set(snap)
+    .then(() => console.log('History snapshot saved successfully:', key))
     .catch(e => {
       console.error('History save failed:', e);
       alert('Could not save pairing history: ' + e.message + '\n\nIf this keeps happening, check Firebase rules.');
@@ -2037,13 +2044,22 @@ function saveHistorySnapshotManual() {
   alert(`Snapshot saved for ${snap.dayOfWeek}, ${snap.date}\n${snap.pairs.length} pair${snap.pairs.length!==1?'s':''}, ${snap.alone.length} alone`);
 }
 
-function deleteHistorySnapshot(dateKey) {
-  if (!confirm('Delete the saved pairings for ' + dateKey + '? This cannot be undone.')) return;
-  delete historyData[dateKey];
-  db.ref(HISTORY_DB_PATH + '/' + dateKey).remove().catch(e => {
+function deleteHistorySnapshot(key) {
+  const snap = historyData[key];
+  const label = snap ? `${snap.dayOfWeek}, ${snap.date}${snap.savedAt ? ' at ' + formatSavedTime(snap.savedAt) : ''}` : key;
+  if (!confirm('Delete the snapshot for ' + label + '? This cannot be undone.')) return;
+  delete historyData[key];
+  db.ref(HISTORY_DB_PATH + '/' + key).remove().catch(e => {
     console.error('History delete failed:', e);
   });
   renderHistory();
+}
+
+// "2:30 PM" style label for a savedAt timestamp
+function formatSavedTime(savedAt) {
+  if (!savedAt) return '';
+  const d = new Date(savedAt);
+  return d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
 }
 
 function populateHistoryPersonFilter() {
@@ -2090,8 +2106,14 @@ function getFilteredHistory() {
     );
   }
   list.sort((a, b) => {
+    // Sort by date first, then by savedAt within the same day.
+    // This way, multiple snapshots on the same day are ordered by when they were saved,
+    // with the newest (or oldest, per user choice) at the top of that day.
     const da = a.date || '', db_ = b.date || '';
-    return sort === 'asc' ? da.localeCompare(db_) : db_.localeCompare(da);
+    const dateCmp = sort === 'asc' ? da.localeCompare(db_) : db_.localeCompare(da);
+    if (dateCmp !== 0) return dateCmp;
+    const ta = a.savedAt || 0, tb = b.savedAt || 0;
+    return sort === 'asc' ? ta - tb : tb - ta;
   });
   return { list, filterPerson: pname };
 }
@@ -2177,12 +2199,13 @@ function renderHistory() {
         <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:0.5rem;margin-bottom:0.4rem;">
           <div>
             <strong style="font-size:1rem;">${esc(snap.dayOfWeek)}, ${esc(snap.date)}</strong>
+            ${snap.savedAt ? `<span style="font-size:0.82rem;color:#0e7490;margin-left:0.4rem;">saved ${esc(formatSavedTime(snap.savedAt))}</span>` : ''}
             <span style="font-size:0.78rem;color:var(--muted);margin-left:0.5rem;">
               ${(snap.pairs||[]).length} pair${(snap.pairs||[]).length!==1?'s':''}${(snap.alone||[]).length ? ` · ${(snap.alone||[]).length} alone` : ''}
               ${snap.dispatcher ? ` · Dispatcher: ${esc(snap.dispatcher)}` : ''}
             </span>
           </div>
-          <button class="btn btn-sm btn-danger" onclick="deleteHistorySnapshot('${esc(snap.date)}')" title="Delete this snapshot">✕</button>
+          <button class="btn btn-sm btn-danger" onclick="deleteHistorySnapshot('${esc(snap.key || snap.date)}')" title="Delete this snapshot">✕</button>
         </div>
         ${sourceLabel ? `<div style="font-size:0.72rem;color:var(--muted);margin-bottom:0.4rem;">${sourceLabel}</div>` : ''}
         ${pairsHtml}
@@ -2194,16 +2217,17 @@ function renderHistory() {
 function exportHistoryCSV() {
   const { list } = getFilteredHistory();
   if (!list.length) { alert('No history to export with current filters.'); return; }
-  const rows = [['Date','Day','Type','Person A','Person B','Truck','Route','Note','Dispatcher']];
+  const rows = [['Date','Day','Saved Time','Type','Person A','Person B','Truck','Route','Note','Dispatcher']];
   list.forEach(snap => {
+    const savedTime = snap.savedAt ? formatSavedTime(snap.savedAt) : '';
     (snap.pairs || []).forEach(p => {
       const truck = p.truckA === p.truckB ? p.truckA : `${p.aName}: ${p.truckA || ''} | ${p.bName}: ${p.truckB || ''}`;
       const route = p.routeA === p.routeB ? p.routeA : `${p.aName}: ${p.routeA || ''} | ${p.bName}: ${p.routeB || ''}`;
       const note  = p.noteA  === p.noteB  ? p.noteA  : `${p.aName}: ${p.noteA  || ''} | ${p.bName}: ${p.noteB  || ''}`;
-      rows.push([snap.date, snap.dayOfWeek, 'Pair', p.aName, p.bName, truck || '', route || '', note || '', snap.dispatcher || '']);
+      rows.push([snap.date, snap.dayOfWeek, savedTime, 'Pair', p.aName, p.bName, truck || '', route || '', note || '', snap.dispatcher || '']);
     });
     (snap.alone || []).forEach(a => {
-      rows.push([snap.date, snap.dayOfWeek, 'Alone', a.personName, '', a.truck || '', a.route || '', a.note || '', snap.dispatcher || '']);
+      rows.push([snap.date, snap.dayOfWeek, savedTime, 'Alone', a.personName, '', a.truck || '', a.route || '', a.note || '', snap.dispatcher || '']);
     });
   });
   const csv = rows.map(r => r.map(c => {
@@ -3021,8 +3045,12 @@ function init() {
   // Listen for history changes — separate path so it doesn't slow main state sync
   db.ref(HISTORY_DB_PATH).on('value',
     snapshot => {
-      const data = snapshot.val();
-      historyData = data || {};
+      const data = snapshot.val() || {};
+      // Backfill each snap's `.key` from its Firebase key. This lets delete know
+      // the exact node to remove, even for older snapshots saved before we started
+      // storing .key inside the snapshot.
+      Object.keys(data).forEach(k => { if (data[k] && !data[k].key) data[k].key = k; });
+      historyData = data;
       // Re-render history if that tab is currently visible
       const histTab = document.getElementById('tab-history');
       if (histTab && !histTab.classList.contains('hidden')) renderHistory();
