@@ -240,6 +240,9 @@
     <p>Assign partners &amp; send personalized texts</p>
   </div>
   <div style="display:flex;gap:0.5rem;flex-wrap:wrap;align-items:center;">
+    <span id="build-badge" title="Build version — check this matches on everyone's device after an update"
+          style="font-size:0.72rem;padding:0.2rem 0.55rem;border-radius:999px;background:rgba(255,255,255,0.12);color:rgba(255,255,255,0.85);font-family:monospace;font-weight:600;letter-spacing:0.03em;cursor:help;"
+          onclick="alert('Build: ' + BUILD + '\\n\\nIf anyone shows a different build, have them hard-refresh: Ctrl+Shift+R (or Cmd+Shift+R on Mac).')"></span>
     <span class="sync-badge sync-connecting" id="sync-badge">⟳ Connecting…</span>
     <button class="btn btn-outline" style="background:rgba(255,255,255,0.12);color:#fff;border-color:rgba(255,255,255,0.3);" onclick="exportConfig()">📤 Export</button>
     <label class="btn btn-outline" style="background:rgba(255,255,255,0.12);color:#fff;border-color:rgba(255,255,255,0.3);cursor:pointer;">
@@ -677,6 +680,18 @@
     </div>
 
     <!-- Danger Zone -->
+    <div class="card">
+      <div class="card-title">ℹ️ Build Info</div>
+      <p style="font-size:0.85rem;color:var(--muted);margin-bottom:0.5rem;">
+        After uploading a new version, have each person hard-refresh (Ctrl+Shift+R / Cmd+Shift+R) and compare this build number.
+      </p>
+      <div style="display:flex;align-items:center;gap:0.75rem;flex-wrap:wrap;">
+        <span style="font-family:monospace;font-size:1.05rem;font-weight:700;background:#f1f5f9;padding:0.35rem 0.75rem;border-radius:6px;border:1px solid #cbd5e1;" id="settings-build-version"></span>
+        <button class="btn btn-outline btn-sm" onclick="navigator.clipboard?.writeText(BUILD).then(() => alert('Copied: ' + BUILD))">📋 Copy</button>
+        <span style="font-size:0.78rem;color:var(--muted);">Loaded at <span id="settings-load-time"></span></span>
+      </div>
+    </div>
+
     <div class="card" style="border-color:var(--danger);">
       <div class="card-title" style="color:var(--danger);">Danger Zone</div>
       <button class="btn btn-danger btn-sm" onclick="clearAllData()">🗑 Clear All Data</button>
@@ -720,6 +735,13 @@ const firebaseConfig = {
 firebase.initializeApp(firebaseConfig);
 const db      = firebase.database();
 const DB_PATH = 'partnerTexter';
+
+// ═══════════════════════════════════════════════════════════════
+// BUILD VERSION — bump this on every release so users can confirm they
+// have the latest after Kelly uploads a new index.html.
+// Format: v<YYYY>.<MM>.<DD>-<build-of-the-day>
+// ═══════════════════════════════════════════════════════════════
+const BUILD = 'v2026.10.01-1';
 
 // ═══════════════════════════════════════════════════════════════
 // BAKED-IN DEFAULTS
@@ -3217,6 +3239,15 @@ function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 // INIT
 // ═══════════════════════════════════════════════════════════════
 function init() {
+  // Show build version in header + log to console so Kelly can confirm which build everyone is on
+  const bb = document.getElementById('build-badge');
+  if (bb) bb.textContent = BUILD;
+  const sbv = document.getElementById('settings-build-version');
+  if (sbv) sbv.textContent = BUILD;
+  const slt = document.getElementById('settings-load-time');
+  if (slt) slt.textContent = new Date().toLocaleString('en-US', { month:'short', day:'numeric', year:'numeric', hour:'numeric', minute:'2-digit' });
+  console.log('%c🤝 Partner Texter — Build ' + BUILD, 'font-weight:bold;color:#3730a3;');
+
   document.getElementById('new-name').addEventListener('keydown', e => { if (e.key === 'Enter') document.getElementById('new-phone').focus(); });
   document.getElementById('new-phone').addEventListener('keydown', e => { if (e.key === 'Enter') addPerson(); });
   document.getElementById('new-dispatcher-name').addEventListener('keydown', e => { if (e.key === 'Enter') addDispatcher(); });
