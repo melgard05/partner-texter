@@ -327,6 +327,7 @@
       <div class="action-bar">
         <button class="btn btn-primary" onclick="shufflePairs()">🔀 Random Shuffle</button>
         <button class="btn btn-outline" onclick="shufflePairsFiltered()" id="shuffle-route-btn" style="display:none;">🔀 Shuffle This Route</button>
+        <button class="btn btn-outline" onclick="saveHistoryRevision()" title="Record a revision of today's pairings (e.g. someone called in) — does NOT send texts" style="color:#0e7490;border-color:#67e8f9;">📝 Save Revision</button>
         <button class="btn btn-outline" onclick="resetPairings()" style="color:var(--danger);border-color:var(--danger);">🔄 Reset Pairings</button>
         <span style="margin-left:auto;font-size:0.85rem;color:var(--muted);" id="pairs-count"></span>
       </div>
@@ -467,7 +468,9 @@
     <div class="card">
       <div class="card-title">Pairing History</div>
       <p style="font-size:0.85rem;color:var(--muted);margin-bottom:0.75rem;">
-        Snapshots auto-save when you send messages, and can also be saved manually from the Pairs tab.
+        The <strong>original plan</strong> auto-saves when you send messages. Make changes later (e.g. someone called in) and hit
+        <strong>📝 Save Revision</strong> on the Pairs tab to record the update without sending texts.
+        Multiple snapshots on the same day stack together with the original on top.
       </p>
       <div style="display:flex;gap:0.5rem;flex-wrap:wrap;align-items:end;margin-bottom:0.75rem;">
         <div style="flex:1;min-width:140px;">
@@ -1962,10 +1965,13 @@ function getDayOfWeek(dateStr) {
   return ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'][d.getDay()];
 }
 
-function buildCurrentSnapshot(source) {
-  // Build a snapshot of CURRENT pairings (used for "for tomorrow" — the date stored is tomorrow's,
-  // matching the email's "Tomorrow you will be…" semantics)
-  const dateStr   = getTomorrowISO();
+function buildCurrentSnapshot(source, opts) {
+  // Build a snapshot of CURRENT pairings.
+  // - For a new send: date defaults to tomorrow (matches the "Tomorrow you will be…" email).
+  // - For a revision: pass opts.forDate so the revision attaches to the same work day
+  //   as the original plan (e.g. revise Monday morning for Monday work).
+  opts = opts || {};
+  const dateStr   = opts.forDate || getTomorrowISO();
   const dayOfWeek = getDayOfWeek(dateStr);
   const dispatcher = state.activeDispatcher || '';
 
@@ -2005,18 +2011,19 @@ function buildCurrentSnapshot(source) {
   });
 
   return {
-    date:       dateStr,
-    dayOfWeek:  dayOfWeek,
-    savedAt:    Date.now(),
-    source:     source || 'manual',
-    dispatcher: dispatcher,
-    pairs:      pairsList,
-    alone:      aloneList
+    date:        dateStr,
+    dayOfWeek:   dayOfWeek,
+    savedAt:     Date.now(),
+    source:      source || 'manual',
+    dispatcher:  dispatcher,
+    revisionNote: opts.revisionNote || '',
+    pairs:       pairsList,
+    alone:       aloneList
   };
 }
 
-function saveHistorySnapshot(source) {
-  const snap = buildCurrentSnapshot(source);
+function saveHistorySnapshot(source, opts) {
+  const snap = buildCurrentSnapshot(source, opts);
   // Unique key: date + time-of-day, so multiple saves on the same day each get their own entry.
   // e.g. "2026-06-09_143025" for 2:30:25 PM on June 9. Sortable, readable in Firebase console.
   const now = new Date();
@@ -2034,6 +2041,45 @@ function saveHistorySnapshot(source) {
       alert('Could not save pairing history: ' + e.message + '\n\nIf this keeps happening, check Firebase rules.');
     });
   return snap;
+}
+
+// Find the most recent snapshot's work date — used to decide which work day a revision attaches to.
+// Returns a "YYYY-MM-DD" string, or null if there's no history yet.
+function getMostRecentSnapshotDate() {
+  const list = Object.values(historyData || {});
+  if (!list.length) return null;
+  list.sort((a, b) => (b.savedAt || 0) - (a.savedAt || 0));
+  return list[0].date || null;
+}
+
+// Save a REVISION — a snapshot that doesn't send texts. Attaches to the same work date
+// as the most recent snapshot (so Monday-morning edits revise the Monday plan, not Tuesday's).
+function saveHistoryRevision() {
+  const hasPairs = Object.values(state.pairs).some(v => v);
+  if (!hasPairs) { alert('No pairings to save. Set up pairs first.'); return; }
+
+  // Which work day are we revising?
+  let forDate = getMostRecentSnapshotDate();
+  if (!forDate) {
+    // No prior snapshot — this is probably the first use. Default to today.
+    forDate = getTomorrowISO().replace(/^(\d{4}-\d{2}-\d{2})$/, (m) => {
+      const t = new Date(); return t.getFullYear() + '-' + String(t.getMonth()+1).padStart(2,'0') + '-' + String(t.getDate()).padStart(2,'0');
+    });
+    forDate = (() => { const t = new Date(); return t.getFullYear() + '-' + String(t.getMonth()+1).padStart(2,'0') + '-' + String(t.getDate()).padStart(2,'0'); })();
+  }
+
+  const dow = getDayOfWeek(forDate);
+  const note = prompt(
+    `Save revision for ${dow}, ${forDate}?\n\n` +
+    `This records your CURRENT pairings as a revision — NO text messages will be sent.\n\n` +
+    `Optional note (e.g. "John called in sick, Shawn replaced him"):`,
+    ''
+  );
+  // prompt() returns null if cancelled, string (possibly empty) if OK
+  if (note === null) return;
+
+  const snap = saveHistorySnapshot('revision', { forDate: forDate, revisionNote: note.trim() });
+  alert(`Revision saved for ${snap.dayOfWeek}, ${snap.date}\n${snap.pairs.length} pair${snap.pairs.length!==1?'s':''}, ${snap.alone.length} alone\n\nNo texts were sent.`);
 }
 
 function saveHistorySnapshotManual() {
@@ -2115,6 +2161,22 @@ function getFilteredHistory() {
     const ta = a.savedAt || 0, tb = b.savedAt || 0;
     return sort === 'asc' ? ta - tb : tb - ta;
   });
+
+  // Tag each snap with its position within its work-day group.
+  // We ALWAYS compute positions chronologically (earliest = ORIGINAL / index 0),
+  // regardless of the display sort order. "__prevKey" points to the immediately
+  // previous snap on the same work day, used by the diff viewer.
+  const byDate = {};
+  list.forEach(s => { if (s.date) (byDate[s.date] = byDate[s.date] || []).push(s); });
+  Object.values(byDate).forEach(group => {
+    // sort ascending by savedAt so earliest is index 0
+    group.sort((a, b) => (a.savedAt || 0) - (b.savedAt || 0));
+    group.forEach((s, i) => {
+      s.__dayIndex = i;
+      s.__prevKey  = i > 0 ? (group[i-1].key || null) : null;
+    });
+  });
+
   return { list, filterPerson: pname };
 }
 
@@ -2190,28 +2252,182 @@ function renderHistory() {
         }).join('')}
       </div>` : '';
 
+    // Determine label for this snapshot within its work-day group.
+    // "Original" = earliest snapshot of that date (usually the Send one).
+    // Subsequent snaps = "Revision 1", "Revision 2", etc. (in chronological order).
+    // __dayIndex is attached by the grouping pass below (0 = original).
+    const dayIndex = snap.__dayIndex;
+    const chainLabel = dayIndex === 0
+      ? '<span style="background:#dcfce7;color:#15803d;padding:0.1rem 0.5rem;border-radius:3px;font-size:0.72rem;font-weight:600;">📋 ORIGINAL PLAN</span>'
+      : `<span style="background:#fef3c7;color:#92400e;padding:0.1rem 0.5rem;border-radius:3px;font-size:0.72rem;font-weight:600;">📝 REVISION ${dayIndex}</span>`;
     const sourceLabel = snap.source === 'auto-send' ? '📤 Auto-saved after send'
+                      : snap.source === 'revision'  ? '📝 Revision — no texts sent'
                       : snap.source === 'manual'    ? '📌 Manually saved'
                       : '';
+    const noteBlock = snap.revisionNote ? `
+      <div style="background:#fef3c7;border-left:3px solid #f59e0b;padding:0.4rem 0.6rem;margin-bottom:0.5rem;font-size:0.85rem;">
+        <strong>Note:</strong> ${esc(snap.revisionNote)}
+      </div>` : '';
+    // Diff button shown on revisions (dayIndex > 0) — compares this snap to the previous one for the same work day
+    const diffBtn = (dayIndex > 0 && snap.__prevKey) ? `
+      <button class="btn btn-sm btn-outline" onclick="showDiff('${esc(snap.__prevKey)}','${esc(snap.key || '')}')" style="font-size:0.78rem;">🔍 What changed?</button>` : '';
 
     return `
-      <div class="card" style="margin-bottom:0.6rem;padding:0.75rem;">
+      <div class="card" style="margin-bottom:0.6rem;padding:0.75rem;border-left:4px solid ${dayIndex === 0 ? '#15803d' : '#f59e0b'};">
         <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:0.5rem;margin-bottom:0.4rem;">
           <div>
             <strong style="font-size:1rem;">${esc(snap.dayOfWeek)}, ${esc(snap.date)}</strong>
+            ${chainLabel}
             ${snap.savedAt ? `<span style="font-size:0.82rem;color:#0e7490;margin-left:0.4rem;">saved ${esc(formatSavedTime(snap.savedAt))}</span>` : ''}
-            <span style="font-size:0.78rem;color:var(--muted);margin-left:0.5rem;">
+            <div style="font-size:0.78rem;color:var(--muted);margin-top:0.1rem;">
               ${(snap.pairs||[]).length} pair${(snap.pairs||[]).length!==1?'s':''}${(snap.alone||[]).length ? ` · ${(snap.alone||[]).length} alone` : ''}
               ${snap.dispatcher ? ` · Dispatcher: ${esc(snap.dispatcher)}` : ''}
-            </span>
+            </div>
           </div>
-          <button class="btn btn-sm btn-danger" onclick="deleteHistorySnapshot('${esc(snap.key || snap.date)}')" title="Delete this snapshot">✕</button>
+          <div style="display:flex;gap:0.3rem;align-items:center;">
+            ${diffBtn}
+            <button class="btn btn-sm btn-danger" onclick="deleteHistorySnapshot('${esc(snap.key || snap.date)}')" title="Delete this snapshot">✕</button>
+          </div>
         </div>
         ${sourceLabel ? `<div style="font-size:0.72rem;color:var(--muted);margin-bottom:0.4rem;">${sourceLabel}</div>` : ''}
+        ${noteBlock}
         ${pairsHtml}
         ${aloneHtml}
       </div>`;
   }).join('');
+}
+
+// Compare two snapshots and show a simple diff: who/what changed.
+function showDiff(oldKey, newKey) {
+  const oldSnap = historyData[oldKey];
+  const newSnap = historyData[newKey];
+  if (!oldSnap || !newSnap) { alert('Could not find both snapshots to compare.'); return; }
+
+  // Build a map of personId → "role" (partnerName or 'ALONE' or 'UNASSIGNED') for each snapshot
+  function buildRoleMap(snap) {
+    const map = new Map();
+    (snap.pairs || []).forEach(p => {
+      map.set(p.aId, { kind: 'paired', withId: p.bId, withName: p.bName, name: p.aName,
+                       truck: p.truckA, route: p.routeA, note: p.noteA });
+      map.set(p.bId, { kind: 'paired', withId: p.aId, withName: p.aName, name: p.bName,
+                       truck: p.truckB, route: p.routeB, note: p.noteB });
+    });
+    (snap.alone || []).forEach(a => {
+      map.set(a.personId, { kind: 'alone', name: a.personName,
+                            truck: a.truck, route: a.route, note: a.note });
+    });
+    return map;
+  }
+  const oldMap = buildRoleMap(oldSnap);
+  const newMap = buildRoleMap(newSnap);
+
+  // All people who appeared in either snapshot
+  const allIds = new Set([...oldMap.keys(), ...newMap.keys()]);
+
+  const removed = []; // in old, not in new  → called in / dropped
+  const added   = []; // in new, not in old  → replacement / new addition
+  const changed = []; // in both, but partner/truck/route/note differs
+
+  allIds.forEach(id => {
+    const o = oldMap.get(id);
+    const n = newMap.get(id);
+    if (o && !n) {
+      removed.push({ id, name: o.name, role: o });
+    } else if (!o && n) {
+      added.push({ id, name: n.name, role: n });
+    } else if (o && n) {
+      const partnerChanged = (o.kind !== n.kind) || (o.kind === 'paired' && o.withId !== n.withId);
+      const truckChanged   = (o.truck || '') !== (n.truck || '');
+      const routeChanged   = (o.route || '') !== (n.route || '');
+      const noteChanged    = (o.note  || '') !== (n.note  || '');
+      if (partnerChanged || truckChanged || routeChanged || noteChanged) {
+        changed.push({ id, name: n.name, oldRole: o, newRole: n,
+                       partnerChanged, truckChanged, routeChanged, noteChanged });
+      }
+    }
+  });
+
+  const describeRole = (role) => {
+    if (!role) return '—';
+    if (role.kind === 'alone') return '🧍 alone';
+    return '↔ ' + role.withName;
+  };
+  const describeExtras = (role) => {
+    const bits = [];
+    if (role.truck) bits.push('🚛 ' + role.truck);
+    if (role.route) bits.push('🛣 ' + role.route);
+    if (role.note)  bits.push(role.note);
+    return bits.join(' · ');
+  };
+
+  let html = `
+    <div style="padding:0.5rem;">
+      <div style="font-size:0.9rem;margin-bottom:0.75rem;color:var(--muted);">
+        Comparing: ${esc(oldSnap.dayOfWeek)}, ${esc(oldSnap.date)} <strong>${esc(formatSavedTime(oldSnap.savedAt))}</strong>
+        &nbsp;→&nbsp;
+        <strong>${esc(formatSavedTime(newSnap.savedAt))}</strong>
+      </div>`;
+
+  if (!removed.length && !added.length && !changed.length) {
+    html += `<div style="padding:1rem;text-align:center;color:var(--muted);">No differences detected between these two snapshots.</div>`;
+  } else {
+    if (removed.length) {
+      html += `<div style="margin-bottom:0.75rem;"><strong style="color:#b91c1c;">❌ Removed (${removed.length}):</strong><div style="margin-top:0.3rem;font-size:0.9rem;">`;
+      removed.forEach(r => {
+        html += `<div style="padding:0.25rem 0;">• <strong>${esc(r.name)}</strong> — was ${describeRole(r.role)}${describeExtras(r.role) ? ' <span style="color:var(--muted);">(' + esc(describeExtras(r.role)) + ')</span>' : ''}</div>`;
+      });
+      html += `</div></div>`;
+    }
+    if (added.length) {
+      html += `<div style="margin-bottom:0.75rem;"><strong style="color:#15803d;">✅ Added (${added.length}):</strong><div style="margin-top:0.3rem;font-size:0.9rem;">`;
+      added.forEach(a => {
+        html += `<div style="padding:0.25rem 0;">• <strong>${esc(a.name)}</strong> — now ${describeRole(a.role)}${describeExtras(a.role) ? ' <span style="color:var(--muted);">(' + esc(describeExtras(a.role)) + ')</span>' : ''}</div>`;
+      });
+      html += `</div></div>`;
+    }
+    if (changed.length) {
+      html += `<div style="margin-bottom:0.75rem;"><strong style="color:#92400e;">🔄 Changed (${changed.length}):</strong><div style="margin-top:0.3rem;font-size:0.9rem;">`;
+      changed.forEach(c => {
+        const lines = [];
+        if (c.partnerChanged) lines.push(`partner: ${describeRole(c.oldRole)} → ${describeRole(c.newRole)}`);
+        if (c.truckChanged)   lines.push(`truck: ${esc(c.oldRole.truck || '—')} → ${esc(c.newRole.truck || '—')}`);
+        if (c.routeChanged)   lines.push(`route: ${esc(c.oldRole.route || '—')} → ${esc(c.newRole.route || '—')}`);
+        if (c.noteChanged)    lines.push(`note: ${esc(c.oldRole.note || '—')} → ${esc(c.newRole.note || '—')}`);
+        html += `<div style="padding:0.3rem 0;border-bottom:1px solid #f1f5f9;">
+                   <strong>${esc(c.name)}</strong>
+                   <div style="padding-left:1rem;font-size:0.82rem;color:#334155;">${lines.join('<br>')}</div>
+                 </div>`;
+      });
+      html += `</div></div>`;
+    }
+  }
+
+  html += `
+      <div style="margin-top:1rem;text-align:right;">
+        <button class="btn btn-primary btn-sm" onclick="closeDiffModal()">Close</button>
+      </div>
+    </div>`;
+
+  // Build modal
+  let modal = document.getElementById('diff-modal');
+  if (!modal) {
+    modal = document.createElement('div');
+    modal.id = 'diff-modal';
+    modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.5);display:flex;align-items:center;justify-content:center;z-index:9999;padding:1rem;';
+    modal.onclick = (e) => { if (e.target === modal) closeDiffModal(); };
+    document.body.appendChild(modal);
+  }
+  modal.innerHTML = `
+    <div style="background:white;border-radius:8px;max-width:600px;width:100%;max-height:85vh;overflow-y:auto;padding:1rem;box-shadow:0 10px 40px rgba(0,0,0,0.3);">
+      <div style="font-size:1.1rem;font-weight:700;margin-bottom:0.5rem;">🔍 Changes between snapshots</div>
+      ${html}
+    </div>`;
+  modal.style.display = 'flex';
+}
+
+function closeDiffModal() {
+  const m = document.getElementById('diff-modal');
+  if (m) m.style.display = 'none';
 }
 
 function exportHistoryCSV() {
