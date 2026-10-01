@@ -234,6 +234,21 @@
   </div>
 </div>
 
+<div id="update-banner" style="display:none;background:linear-gradient(90deg,#f59e0b,#d97706);color:#fff;padding:0.7rem 1.5rem;align-items:center;gap:1rem;flex-wrap:wrap;box-shadow:0 2px 8px rgba(0,0,0,0.15);">
+  <span style="font-size:1.4rem;">🔄</span>
+  <div style="flex:1;min-width:200px;">
+    <strong>A new version is available</strong>
+    <div style="font-size:0.82rem;opacity:0.95;">
+      You have <code style="background:rgba(0,0,0,0.2);padding:0.1rem 0.35rem;border-radius:3px;" id="update-banner-current"></code> —
+      latest is <code style="background:rgba(0,0,0,0.2);padding:0.1rem 0.35rem;border-radius:3px;" id="update-banner-latest"></code>.
+      Refresh to update.
+    </div>
+  </div>
+  <button class="btn" onclick="hardReload()" style="background:#fff;color:#92400e;font-weight:700;border:none;padding:0.5rem 1rem;">🔄 Refresh Now</button>
+  <button onclick="dismissUpdateBanner()" title="Dismiss (banner will come back if an even newer version is released)"
+          style="background:transparent;border:1px solid rgba(255,255,255,0.4);color:#fff;padding:0.4rem 0.7rem;border-radius:4px;cursor:pointer;">✕ Later</button>
+</div>
+
 <header>
   <div>
     <h1>🤝 Partner Texter</h1>
@@ -740,8 +755,30 @@ const DB_PATH = 'partnerTexter';
 // BUILD VERSION — bump this on every release so users can confirm they
 // have the latest after Kelly uploads a new index.html.
 // Format: v<YYYY>.<MM>.<DD>-<build-of-the-day>
+// When any session loads with a newer build than what's in Firebase,
+// it publishes the new build string. Older sessions listening to the
+// same path will then show an "Update available" banner.
 // ═══════════════════════════════════════════════════════════════
-const BUILD = 'v2026.10.01-1';
+const BUILD = 'v2026.10.01-2';
+const BUILD_DB_PATH = DB_PATH + '/currentBuild';
+
+// Parse "v2026.10.01-1" → { year, month, day, build } — null if malformed.
+function parseBuild(s) {
+  const m = /^v(\d+)\.(\d+)\.(\d+)-(\d+)$/.exec(s || '');
+  if (!m) return null;
+  return { year: +m[1], month: +m[2], day: +m[3], build: +m[4] };
+}
+
+// True if a is strictly newer than b. Used to decide whether to publish our
+// build to Firebase and whether to show the update banner.
+function isBuildNewer(a, b) {
+  const pa = parseBuild(a), pb = parseBuild(b);
+  if (!pa || !pb) return false;
+  if (pa.year  !== pb.year)  return pa.year  > pb.year;
+  if (pa.month !== pb.month) return pa.month > pb.month;
+  if (pa.day   !== pb.day)   return pa.day   > pb.day;
+  return pa.build > pb.build;
+}
 
 // ═══════════════════════════════════════════════════════════════
 // BAKED-IN DEFAULTS
@@ -841,6 +878,67 @@ function setSyncBadge(status) {
   if (status === 'live')  { b.textContent = '🟢 Live';        b.className = 'sync-badge sync-live'; }
   else if (status === 'error') { b.textContent = '🔴 Offline'; b.className = 'sync-badge sync-error'; }
   else                         { b.textContent = '⟳ Connecting…'; b.className = 'sync-badge sync-connecting'; }
+}
+
+// ═══════════════════════════════════════════════════════════════
+// UPDATE BANNER (shows when a newer build is published to Firebase)
+// ═══════════════════════════════════════════════════════════════
+let dismissedBuild = null;  // if user clicks "Later", remember which build they dismissed
+
+function showUpdateBanner(latestBuild) {
+  if (!latestBuild || !isBuildNewer(latestBuild, BUILD)) return;
+  if (dismissedBuild === latestBuild) return; // they already dismissed this one
+  const banner  = document.getElementById('update-banner');
+  const current = document.getElementById('update-banner-current');
+  const latest  = document.getElementById('update-banner-latest');
+  if (!banner) return;
+  if (current) current.textContent = BUILD;
+  if (latest)  latest.textContent  = latestBuild;
+  banner.dataset.build = latestBuild;
+  banner.style.display = 'flex';
+}
+
+function dismissUpdateBanner() {
+  const banner = document.getElementById('update-banner');
+  if (!banner) return;
+  dismissedBuild = banner.dataset.build || null;
+  banner.style.display = 'none';
+}
+
+// Hard reload — bypass cache, bypass service worker so the new HTML actually loads.
+async function hardReload() {
+  try {
+    // Clear every cached response and unregister any service worker that might be
+    // serving a stale index.html. Then reload.
+    if (window.caches && caches.keys) {
+      const keys = await caches.keys();
+      await Promise.all(keys.map(k => caches.delete(k)));
+    }
+    if (navigator.serviceWorker && navigator.serviceWorker.getRegistrations) {
+      const regs = await navigator.serviceWorker.getRegistrations();
+      await Promise.all(regs.map(r => r.unregister()));
+    }
+  } catch(e) { console.warn('Cache/SW cleanup failed:', e); }
+  // Add a cache-busting query so even the HTML itself gets refetched
+  const u = new URL(window.location.href);
+  u.searchParams.set('_v', Date.now());
+  window.location.replace(u.toString());
+}
+
+// Publish our BUILD to Firebase if it's newer than what's there.
+// This way, the LAST person to hard-refresh after an update is the one
+// who notifies everyone else via the listener below.
+function publishBuildIfNewer() {
+  db.ref(BUILD_DB_PATH).transaction((current) => {
+    // Transaction returns the new value, or undefined to abort (keep current).
+    if (!current || !current.build) {
+      return { build: BUILD, publishedAt: firebase.database.ServerValue.TIMESTAMP };
+    }
+    if (isBuildNewer(BUILD, current.build)) {
+      return { build: BUILD, publishedAt: firebase.database.ServerValue.TIMESTAMP };
+    }
+    return undefined; // abort — remote is same or newer
+  }).catch(e => console.warn('Build publish failed:', e));
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -3304,6 +3402,20 @@ function init() {
     },
     error => {
       console.error('History sync error:', error);
+    }
+  );
+
+  // Publish our build to Firebase if it's newer than what's there, so other
+  // sessions get notified. Then listen for changes so WE get notified when
+  // someone else publishes a newer build.
+  publishBuildIfNewer();
+  db.ref(BUILD_DB_PATH).on('value',
+    snapshot => {
+      const data = snapshot.val();
+      if (data && data.build) showUpdateBanner(data.build);
+    },
+    error => {
+      console.warn('Build listener error:', error);
     }
   );
 }
