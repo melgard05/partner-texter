@@ -349,6 +349,24 @@
         <button class="btn btn-outline" onclick="resetPairings()" style="color:var(--danger);border-color:var(--danger);">🔄 Reset Pairings</button>
         <span style="margin-left:auto;font-size:0.85rem;color:var(--muted);" id="pairs-count"></span>
       </div>
+
+      <!-- Change log — a persistent scratchpad for noting what changed today -->
+      <div style="background:#fef9c3;border:1px solid #fde047;border-radius:6px;padding:0.6rem 0.75rem;margin-bottom:0.75rem;">
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:0.5rem;flex-wrap:wrap;margin-bottom:0.4rem;">
+          <strong style="font-size:0.9rem;color:#854d0e;">📋 Change Log</strong>
+          <div style="display:flex;gap:0.3rem;align-items:center;">
+            <span id="change-log-saved" style="font-size:0.72rem;color:#854d0e;opacity:0.75;"></span>
+            <button class="btn btn-outline btn-sm" onclick="addChangeLogTimestamp()" title="Add a timestamp line to the log" style="font-size:0.75rem;padding:0.2rem 0.5rem;">⏱ Timestamp</button>
+            <button class="btn btn-outline btn-sm" onclick="clearChangeLog()" title="Clear the log" style="font-size:0.75rem;padding:0.2rem 0.5rem;color:var(--danger);border-color:var(--danger);">✕ Clear</button>
+          </div>
+        </div>
+        <textarea id="change-log" rows="3" placeholder="Note what changed today — e.g.&#10;7:15 AM — Shawn called in sick&#10;7:20 AM — Travis replaced Shawn with Alice on Route Becker Rec N&#10;8:00 AM — Added extra pickup for Perham Rec S"
+                  oninput="onChangeLogInput()"
+                  style="width:100%;font-size:0.88rem;padding:0.45rem;border:1px solid #fde047;border-radius:4px;resize:vertical;background:#fffbeb;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;"></textarea>
+        <div style="font-size:0.72rem;color:#854d0e;margin-top:0.3rem;opacity:0.85;">
+          💡 Auto-saves as you type. Included in every history snapshot so you can see what notes were current at each save.
+        </div>
+      </div>
       <div class="route-filter-bar">
         <label>🗺️ Show Route:</label>
         <select id="pairs-route-filter" onchange="onPairsRouteFilter()">
@@ -759,7 +777,7 @@ const DB_PATH = 'partnerTexter';
 // it publishes the new build string. Older sessions listening to the
 // same path will then show an "Update available" banner.
 // ═══════════════════════════════════════════════════════════════
-const BUILD = 'v2026.10.01-2';
+const BUILD = 'v2026.10.01-3';
 const BUILD_DB_PATH = DB_PATH + '/currentBuild';
 
 // Parse "v2026.10.01-1" → { year, month, day, build } — null if malformed.
@@ -958,6 +976,7 @@ function migrateState(s) {
   if (!s.routes)           s.routes           = [];
   if (!s.trucks)           s.trucks           = [];
   if (!s.routeAnchors)     s.routeAnchors     = {};
+  if (typeof s.changeLog !== 'string') s.changeLog = '';
   if (Array.isArray(s.people)) s.people.forEach(p => { if (!('route' in p)) p.route = ''; });
   if (!s._v || s._v < 3) {
     if (s.template && !s.template.includes('{pairNote}')) {
@@ -1151,6 +1170,61 @@ let overrideRouteWeek = false;
 function toggleOverrideRouteWeek(checked) {
   overrideRouteWeek = !!checked;
   renderPairs();
+}
+
+// ═══════════════════════════════════════════════════════════════
+// CHANGE LOG — persistent notes on the Pairs tab for logging what changed today
+// ═══════════════════════════════════════════════════════════════
+let changeLogSaveTimer = null;
+
+function onChangeLogInput() {
+  const ta = document.getElementById('change-log');
+  if (!ta) return;
+  state.changeLog = ta.value;
+  const saved = document.getElementById('change-log-saved');
+  if (saved) saved.textContent = 'typing…';
+  // Debounce writes to Firebase — don't hammer it with every keystroke
+  clearTimeout(changeLogSaveTimer);
+  changeLogSaveTimer = setTimeout(() => {
+    saveState();
+    if (saved) {
+      const t = new Date();
+      saved.textContent = 'saved ' + t.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+    }
+  }, 600);
+}
+
+function addChangeLogTimestamp() {
+  const ta = document.getElementById('change-log');
+  if (!ta) return;
+  const now = new Date();
+  const stamp = now.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }) + ' — ';
+  // Insert at caret if possible, otherwise append to a new line at the end
+  const cur = ta.value;
+  if (document.activeElement === ta) {
+    const start = ta.selectionStart ?? cur.length;
+    const end   = ta.selectionEnd ?? cur.length;
+    const needsNewline = start > 0 && cur[start - 1] !== '\n';
+    const insert = (needsNewline ? '\n' : '') + stamp;
+    ta.value = cur.slice(0, start) + insert + cur.slice(end);
+    const newCaret = start + insert.length;
+    ta.setSelectionRange(newCaret, newCaret);
+  } else {
+    ta.value = cur + (cur && !cur.endsWith('\n') ? '\n' : '') + stamp;
+  }
+  ta.focus();
+  onChangeLogInput();
+}
+
+function clearChangeLog() {
+  if (!(state.changeLog || '').trim()) return;
+  if (!confirm('Clear the change log?\n\nThis will erase any notes you\'ve typed today.')) return;
+  state.changeLog = '';
+  const ta = document.getElementById('change-log');
+  if (ta) ta.value = '';
+  saveState();
+  const saved = document.getElementById('change-log-saved');
+  if (saved) saved.textContent = 'cleared';
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -1766,8 +1840,12 @@ function removePerson(id) {
   if (!confirm('Remove this person? Their pair will also be cleared.')) return;
   state.people = state.people.filter(p => p.id !== id);
   const partner = state.pairs[id];
-  if (partner && partner !== ALONE) delete state.pairs[partner];
+  if (partner && partner !== ALONE) {
+    delete state.pairs[partner];
+    clearPairDataFor(partner); // partner is now unassigned
+  }
   delete state.pairs[id];
+  clearPairDataFor(id);          // and the deleted person
   saveState();
   renderPeopleTable();
 }
@@ -1775,7 +1853,7 @@ function removePerson(id) {
 function clearAllPeople() {
   if (!state.people.length) return;
   if (!confirm('⚠️ Remove ALL people and ALL pair assignments?\n\nThis cannot be undone.')) return;
-  state.people = []; state.pairs = {}; nextId = 1;
+  state.people = []; state.pairs = {}; state.pairData = {}; nextId = 1;
   saveState(); renderPeopleTable();
 }
 
@@ -2137,6 +2215,7 @@ function buildCurrentSnapshot(source, opts) {
     source:      source || 'manual',
     dispatcher:  dispatcher,
     revisionNote: opts.revisionNote || '',
+    changeLog:   state.changeLog || '',  // snapshot of the change log at save time
     pairs:       pairsList,
     alone:       aloneList
   };
@@ -2388,6 +2467,11 @@ function renderHistory() {
       <div style="background:#fef3c7;border-left:3px solid #f59e0b;padding:0.4rem 0.6rem;margin-bottom:0.5rem;font-size:0.85rem;">
         <strong>Note:</strong> ${esc(snap.revisionNote)}
       </div>` : '';
+    const logBlock = (snap.changeLog && snap.changeLog.trim()) ? `
+      <div style="background:#fef9c3;border-left:3px solid #eab308;padding:0.4rem 0.6rem;margin-bottom:0.5rem;font-size:0.85rem;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;white-space:pre-wrap;">
+        <strong style="font-family:inherit;">📋 Change Log:</strong>
+${esc(snap.changeLog.trim())}
+      </div>` : '';
     // Diff button shown on revisions (dayIndex > 0) — compares this snap to the previous one for the same work day
     const diffBtn = (dayIndex > 0 && snap.__prevKey) ? `
       <button class="btn btn-sm btn-outline" onclick="showDiff('${esc(snap.__prevKey)}','${esc(snap.key || '')}')" style="font-size:0.78rem;">🔍 What changed?</button>` : '';
@@ -2411,6 +2495,7 @@ function renderHistory() {
         </div>
         ${sourceLabel ? `<div style="font-size:0.72rem;color:var(--muted);margin-bottom:0.4rem;">${sourceLabel}</div>` : ''}
         ${noteBlock}
+        ${logBlock}
         ${pairsHtml}
         ${aloneHtml}
       </div>`;
@@ -2762,20 +2847,44 @@ function stopBroadcast() {
 
 function setPair(personId, rawValue) {
   const oldPartner = state.pairs[personId];
-  if (oldPartner && oldPartner !== ALONE) delete state.pairs[oldPartner];
+  if (oldPartner && oldPartner !== ALONE) {
+    delete state.pairs[oldPartner];
+    // The old partner just became unassigned — wipe their truck/route/note so they
+    // don't count against route limits and don't carry a stale route/truck forward.
+    clearPairDataFor(oldPartner);
+  }
   delete state.pairs[personId];
-  if (!rawValue) { saveState(); renderPairs(); renderPeopleTable(); return; }
+
+  if (!rawValue) {
+    // Person is now fully unassigned — clear their stored assignment too.
+    clearPairDataFor(personId);
+    saveState(); renderPairs(); renderPeopleTable(); return;
+  }
   if (rawValue === ALONE) {
     state.pairs[personId] = ALONE;
     saveState(); renderPairs(); renderPeopleTable(); return;
   }
   const pid = parseInt(rawValue);
   const displaced = state.pairs[pid];
-  if (displaced && displaced !== ALONE) delete state.pairs[displaced];
+  if (displaced && displaced !== ALONE) {
+    delete state.pairs[displaced];
+    // Whoever was previously paired with the new partner is now unassigned — wipe theirs too.
+    clearPairDataFor(displaced);
+  }
   delete state.pairs[pid];
   state.pairs[personId] = pid;
   state.pairs[pid]      = personId;
   saveState(); renderPairs(); renderPeopleTable();
+}
+
+// Clear a person's pairData entry entirely. Used when they become unassigned so
+// that their truck/route/note don't haunt the system (e.g. still counting toward
+// the max-2-people-per-route limit even though they're not working today).
+function clearPairDataFor(personId) {
+  if (!state.pairData) return;
+  // IDs come in as both numbers (JS) and strings (object keys), so check both.
+  delete state.pairData[personId];
+  delete state.pairData[String(personId)];
 }
 
 function renderPairs() {
@@ -2783,6 +2892,15 @@ function renderPairs() {
   const empty     = document.getElementById('pairs-empty');
   const count     = document.getElementById('pairs-count');
   const people    = getFilteredPeople('pairs-route-filter');
+
+  // Keep the change-log textarea in sync with state (someone on another device
+  // may have edited it). Don't clobber what's currently being typed, though —
+  // if this user has focus and the stored value matches what they last saved,
+  // skip the write so we don't fight their caret.
+  const logTa = document.getElementById('change-log');
+  if (logTa && document.activeElement !== logTa && logTa.value !== (state.changeLog || '')) {
+    logTa.value = state.changeLog || '';
+  }
 
   // Update the "showing routes for week of …" label and the override checkbox
   const weekLabel = document.getElementById('pairs-week-label');
